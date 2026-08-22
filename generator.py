@@ -2,7 +2,7 @@
 From the reference data (enrolment, venues, curriculum, teaching capability, staff)
 it sizes streams, allocates venues and instructors under the rules and load caps,
 and red-flags anything that cannot be placed or staffed. Greedy, deterministic."""
-import math
+import math, re
 from collections import defaultdict
 import rules
 
@@ -75,11 +75,29 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
             return False
         return True
 
+    def mod_limit(name):
+        try:
+            return int(instructors.get(name, {}).get("module_limit"))
+        except (TypeError, ValueError):
+            return cap_mod
+
+    def avail(name):
+        inf = instructors.get(name, {})
+        days = {d.strip() for d in (inf.get("avail_days") or "").split(",") if d.strip()}
+        pers = set()
+        for x in (inf.get("avail_periods") or "").split(","):
+            m = re.search(r"\d+", x)
+            if m:
+                pers.add(int(m.group()))
+        return days, pers
+
     def eligible(nta, mod, code):
         s = set(can.get(("m", (mod or "").strip().lower()), set())) | set(can.get(("c", (code or "").strip().lower()), set()))
         out = []
         for n in s:
             inf = instructors.get(n, {})
+            if (inf.get("status") or "On duty") == "Study leave":
+                continue  # not on duty — cannot be allocated
             if "NTA9" in (nta or "") and not inf.get("is_phd"):
                 continue
             out.append(n)
@@ -112,8 +130,9 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                 done = False
                 for instr in cand:
                     new_mod = mkey not in imod[instr]
-                    if new_mod and len(imod[instr]) >= cap_mod:
-                        continue
+                    if new_mod and len(imod[instr]) >= mod_limit(instr):
+                        continue  # respects part-time / volunteer module limits
+                    adays, apers = avail(instr)
                     placed = []
                     used_days = set()
                     for day in sorted(DAYS, key=lambda d: sum(1 for (p, n, s2, dd, tt) in sbusy if (p, n, s2) == (prog, nta, stream) and dd == d)):
@@ -121,9 +140,13 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                             break
                         if day in used_days:
                             continue
+                        if adays and day not in adays:
+                            continue  # instructor not available this day
                         for t in periods:
                             if nta9 and not (t in EVE or day == "Sat"):
                                 continue
+                            if apers and t not in apers:
+                                continue  # instructor not available this period
                             if (instr, day, t) in ibusy:
                                 continue
                             if (prog, nta, stream, day, t) in sbusy:
