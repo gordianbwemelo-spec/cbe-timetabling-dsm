@@ -319,9 +319,35 @@ function lecturerModal(rid){const row=rid==null?{}:(TINSTRROWS.find(x=>x._id===r
     window.__tInstr=body.name; if(body.dept)window.__tDept=body.dept;
     closeModal();await loadData();renderNav();renderTeaching();};
 }
+function ntaLevel(n){const m=(n||'').match(/(\d)/);return m?+m[1]:9;}
+async function renderEnrolment(){
+  const p=$('datapanel');
+  const r=await api('/ref/enrolment'); DATAROWS=r.rows;
+  const byProg={}; r.rows.forEach(x=>{(byProg[x.programme]||(byProg[x.programme]=[])).push(x);});
+  let h='<div class="note">Enrolment is grouped <b>per programme, then per NTA level</b>. Fill in the student numbers (Female, Male, Total) for each level. Use <b>Download template</b> / <b>Upload CSV</b> to load many at once.</div>';
+  h+=`<div class="controls"><button class="btn" onclick="entityEdit(null)">+ Add row</button>`+
+     `<a class="btn sec" href="/api/ref/enrolment/template.csv">Download template</a>`+
+     `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('enrolment',this)"></label>`+
+     `<input type="text" id="esearch" placeholder="Search programme…" style="min-width:220px"><span class="small">${Object.keys(byProg).length} programmes</span></div>`;
+  h+='<div class="wrap"><table id="etbl">';
+  Object.keys(byProg).sort().forEach(prog=>{
+    const rows=byProg[prog].sort((a,b)=>ntaLevel(a.nta)-ntaLevel(b.nta)||String(a.year).localeCompare(String(b.year)));
+    const dept=rows[0].department||'—';
+    const tot=rows.reduce((s,x)=>s+(parseInt(x.total)||0),0);
+    h+=`<tr data-prog="${esc(prog)}" style="background:var(--lblue)"><td colspan="6"><b>${esc(prog)}</b> <span class="small">— ${esc(dept)} · ${rows.length} NTA level(s)${tot?' · total '+tot:''}</span></td></tr>`;
+    h+=`<tr data-prog="${esc(prog)}"><th style="background:#6b83b5">NTA level</th><th style="background:#6b83b5">Year</th><th style="background:#6b83b5">Female</th><th style="background:#6b83b5">Male</th><th style="background:#6b83b5">Total</th><th style="background:#6b83b5"></th></tr>`;
+    rows.forEach(x=>{h+=`<tr data-prog="${esc(prog)}"><td>${esc(x.nta)}</td><td>${esc(x.year)}</td><td>${esc(x.female)}</td><td>${esc(x.male)}</td><td>${esc(x.total)}</td>`+
+      `<td style="white-space:nowrap"><button class="btn small" onclick="entityEdit(${x._id})">Edit</button> <button class="btn small danger" onclick="entityDel(${x._id})">✕</button></td></tr>`;});
+  });
+  h+='</table></div>';
+  p.innerHTML=h;
+  const s=$('esearch'); if(s)s.oninput=()=>{const qq=s.value.toLowerCase();
+    document.querySelectorAll('#etbl tr[data-prog]').forEach(tr=>{tr.style.display=(!qq||tr.dataset.prog.toLowerCase().includes(qq))?'':'none';});};
+}
 async function renderDataPanel(){
   const p=$('datapanel');
   if(DATASUB==='teaching')return renderTeaching();
+  if(DATASUB==='enrolment')return renderEnrolment();
   const cfg=REFC[DATASUB]; const q=cfg.sem?`?sem=${SEM}`:'';
   const r=await api(`/ref/${DATASUB}${q}`); DATAROWS=r.rows;
   let deptSel='';
