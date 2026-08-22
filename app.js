@@ -216,10 +216,11 @@ R.data=function(){
 };
 function dataSub(k){DATASUB=k;R.data();}
 R.catalogue=async function(){const r=await api(`/${SEM}/catalogue`); window.__cat=r.rows;
-  let h=`<h2>Module Catalogue — Semester ${SEM} <span class="small">(${r.rows.length} distinct modules)</span></h2>`;
-  h+='<div class="note">Click <b>Edit</b> to correct a module’s name or code — the change is applied everywhere it appears (timetable, curriculum, teaching).</div>';
-  h+='<div class="controls"><input type="text" id="dsearch" placeholder="Search module or code…" style="min-width:260px"></div><div class="wrap"><table id="dtbl"><tr><th>Code</th><th>Module</th><th>Credit</th><th>Used by</th><th></th></tr>';
-  h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}</td><td>${esc(x.credit)}</td><td>${x.uses}</td><td><button class="btn small" data-i="${i}">Edit</button></td></tr>`).join('');
+  const cross=r.rows.filter(x=>x.cross).length;
+  let h=`<h2>Module Catalogue — Semester ${SEM} <span class="small">(${r.rows.length} modules · ${cross} cross-cutting)</span></h2>`;
+  h+='<div class="note">Each module shows the <b>programmes</b> and <b>NTA levels</b> in which it is taught; modules shared by more than one programme are tagged <b>cross-cutting</b>. Click <b>Edit</b> to correct a name or code everywhere it appears.</div>';
+  h+='<div class="controls"><input type="text" id="dsearch" placeholder="Search module, code or programme…" style="min-width:280px"></div><div class="wrap"><table id="dtbl"><tr><th>Code</th><th>Module</th><th>Credit</th><th>Programmes</th><th>NTA levels</th><th></th></tr>';
+  h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}${x.cross?' <span class="pill amber">cross-cutting</span>':''}</td><td>${esc(x.credit)}</td><td>${esc(x.programmes)}</td><td>${esc(x.ntas)}</td><td><button class="btn small" data-i="${i}">Edit</button></td></tr>`).join('');
   $('t-catalogue').innerHTML=h+'</table></div>'; wireSearch();
   document.querySelectorAll('#t-catalogue button[data-i]').forEach(b=>{b.onclick=()=>{const x=window.__cat[+b.dataset.i];moduleModal(x.code,x.module);};});};
 function moduleModal(code,module){
@@ -419,10 +420,10 @@ function uploadCSV(entity,input){const f=input.files[0];if(!f)return;const rd=ne
     if(entity==='instructors'||entity==='venues'){await loadData();renderNav();}};
   rd.readAsText(f);}
 
-const SETLBL={max_stream_size:'Max students per stream (sets number of streams)',seat_tolerance:'Seat tolerance over room capacity',
+const SETLBL={max_stream_size:'Max students per stream — “auto” = largest room',seat_tolerance:'Seat tolerance over room capacity',
   module_cap:'Max modules per instructor (hard cap)',daytime_cap:'Max daytime hours / week',evening_cap:'Max evening hours / week',
   soft_modules:'Soft limit — modules',soft_daytime:'Soft limit — daytime hours',soft_evening:'Soft limit — evening hours',
-  lab_size:'Typical lab size',classroom_size:'Typical classroom size',days:'Teaching days'};
+  lab_size:'Typical lab size (from venues)',classroom_size:'Typical classroom size (from venues)',days:'Teaching days'};
 const BUILTIN_RULES=[
  'R1 — Each module runs as two 2-hour sessions per week, on different days, per stream.',
  'R2 — The same instructor teaches both sessions of a stream.',
@@ -435,12 +436,16 @@ const BUILTIN_RULES=[
  'R9 — Appropriate allocation: Master’s to PhD holders; IT to ICT staff; modules only to capable staff.',
  'L1–L3 — Load caps: max modules, daytime hours and evening hours per instructor.'];
 R.rules=async function(){const r=await api('/settings');const s=r.settings;
+  let vs={largest_hall:0,typical_classroom:0,typical_lab:0}; try{vs=await api(`/${SEM}/venuesizes`);}catch(e){}
+  const HINT={max_stream_size:`“auto” uses the largest room in Semester ${SEM} (${vs.largest_hall} seats). Type a smaller number to cap the stream size.`,
+    classroom_size:`from your venues, a typical classroom is about ${vs.typical_classroom} seats.`,
+    lab_size:`from your venues, a typical lab is about ${vs.typical_lab} seats.`};
   let h=`<h2>Rules &amp; Generation — Semester ${SEM}</h2>`;
   h+='<div class="note warn"><b>Generate a timetable from your data.</b> Using the enrolment, venues, curriculum and teaching-capability you maintain in the <b>Data</b> tab, the system sizes streams, allocates venues and instructors under the rules below, and red-flags anything that cannot be placed. This <b>replaces</b> the current Semester '+SEM+' schedule (use <b>Sessions → Reset to published</b> to restore).</div>';
   h+=`<div class="controls"><button class="btn" style="font-size:14px;padding:10px 18px" onclick="generateTT()">⚙ Generate Semester ${SEM} timetable</button></div>`;
-  h+='<h3>Parameters</h3><div class="note">Change these to control how the timetable is built, then <b>Save parameters</b>.</div><div style="display:flex;flex-wrap:wrap;gap:12px;max-width:900px">';
+  h+='<h3>Parameters</h3><div class="note">Stream sizes follow your actual <b>venue capacity</b>: leaving “Max students per stream” as <b>auto</b> makes each stream as large as the biggest room, so the number of streams is decided by the rooms you have. Change any value, then <b>Save parameters</b>.</div><div style="display:flex;flex-wrap:wrap;gap:12px;max-width:920px">';
   Object.keys(SETLBL).forEach(k=>{const v=s[k]==null?'':s[k];
-    h+=`<label style="flex:1;min-width:230px;font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">${SETLBL[k]}<input type="text" data-set="${k}" value="${esc(v)}"></label>`;});
+    h+=`<label style="flex:1;min-width:240px;font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">${SETLBL[k]}<input type="text" data-set="${k}" value="${esc(v)}">${HINT[k]?`<span class="small" style="font-size:10px">${esc(HINT[k])}</span>`:''}</label>`;});
   h+='</div><div class="controls"><button class="btn" onclick="saveSettings()">Save parameters</button></div>';
   h+='<h3>Additional requirements</h3><div class="note">Record extra requirements/notes for reviewers (shown here and printable). Structured constraints can be wired into generation on request.</div>';
   h+='<div class="controls"><input type="text" id="newrule" placeholder="e.g. Keep Marketing NTA4 at Saba Saba only…" style="min-width:360px"><button class="btn" onclick="addRule()">+ Add requirement</button></div>';
