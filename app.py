@@ -90,9 +90,15 @@ def init_db():
     # placeholder levels "TFC"/"TNC" (or blank) instead of real NTA levels.
     # Reload Semester I from the corrected seed and rebuild its curriculum so
     # NTA4-9 show everywhere. Semester II and any user edits there are untouched.
+    try:
+        seed_ver = int(json.load(open(SEED, encoding="utf-8")).get("meta", {}).get("data_version", 0))
+    except Exception:
+        seed_ver = 0
+    vrow = con.execute("SELECT v FROM meta WHERE k='data_version'").fetchone()
+    db_ver = int(vrow[0]) if vrow and str(vrow[0]).isdigit() else 0
     stale = con.execute("SELECT COUNT(*) FROM sessions WHERE semester='I' AND "
                         "(nta IN ('TFC','TNC') OR IFNULL(nta,'')='')").fetchone()[0]
-    if stale:
+    if stale or seed_ver > db_ver:
         seed(con, only_sem="I")
         con.execute("DELETE FROM curriculum WHERE semester='I'")
         seen = set()
@@ -106,6 +112,7 @@ def init_db():
                 con.execute("INSERT INTO curriculum(semester, programme, nta, code, module, credit, cls) VALUES(?,?,?,?,?,?,?)",
                             (sem, bp, nta or "", code or "", mod or "", "", ""))
         con.execute("DELETE FROM enrolment")   # rebuilt from real NTA levels below
+        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('data_version',?)", (str(seed_ver),))
         con.commit()
     seed_reference(con)
     con.close()
