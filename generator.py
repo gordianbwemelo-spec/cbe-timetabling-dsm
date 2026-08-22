@@ -20,7 +20,16 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
         except (TypeError, ValueError):
             return d
     tol = sget("seat_tolerance", 10)
-    max_stream = max(1, sget("max_stream_size", 120))
+    # Stream size depends on the ACTUAL venue capacity (largest usable room),
+    # optionally capped by a manual "max_stream_size" if the user set a number.
+    _halls = [v["capacity"] for v in venues if not v["is_lab"]]
+    largest_hall = max(_halls) if _halls else 100
+    _pg = [v["capacity"] for v in venues if v["venue"] in ("BTA", "BTB", "BTC")]
+    largest_pg = max(_pg) if _pg else 56
+    try:
+        user_cap = int(settings.get("max_stream_size"))
+    except (TypeError, ValueError):
+        user_cap = 0  # "auto" / blank => no manual cap; use the room capacity
     cap_mod = sget("module_cap", 7)
     cap_day = sget("daytime_cap", 32)
     cap_eve = sget("evening_cap", 20)
@@ -81,11 +90,15 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
         T = enr.get((prog, nta), 0)
         if T <= 0:
             flags.append({"type": "NO_ENROLMENT", "detail": f"{prog} {nta}: no enrolment figure — cannot size streams.", "severity": "review"})
-            T = max_stream  # assume one full stream so a schedule is still attempted
-        nstreams = max(1, math.ceil(T / max_stream))
+            T = largest_hall  # assume one full stream so a schedule is still attempted
+        nta9 = "NTA9" in (nta or "")
+        # the biggest room this cohort could actually use decides the stream size
+        room_max = largest_pg if nta9 else largest_hall
+        target = room_max if user_cap <= 0 else min(user_cap, room_max)
+        target = max(1, target)
+        nstreams = max(1, math.ceil(T / target))
         size = math.ceil(T / nstreams)
         stats["streams"] += nstreams
-        nta9 = "NTA9" in (nta or "")
         periods = EVE_T if nta9 else (DAY_T + EVE_T)
         for si in range(nstreams):
             stream = chr(65 + si) if nstreams > 1 else "A"
