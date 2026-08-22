@@ -62,6 +62,28 @@ def validate(sess, sessions, venmap, instructors, exclude_id=None):
         elif day >= SOFT_DAY: out.append({"rule": "L2", "hard": False, "msg": f"{sess['instr']} at {day}h daytime (soft 28h)."})
         if eve > CAP_EVE: out.append({"rule": "L3", "hard": True, "msg": f"{sess['instr']} would reach {eve}h evening (cap 20h)."})
         elif eve >= SOFT_EVE: out.append({"rule": "L3", "hard": False, "msg": f"{sess['instr']} at {eve}h evening (soft 16h)."})
+    inf = instructors.get(sess.get("instr"))
+    if inf and sess.get("instr"):
+        if (inf.get("status") or "On duty") == "Study leave":
+            out.append({"rule": "Duty", "hard": True, "msg": f"{sess['instr']} is on study leave and should not be allocated modules."})
+        adays = {d.strip() for d in (inf.get("avail_days") or "").split(",") if d.strip()}
+        if adays and sess["day"] not in adays:
+            out.append({"rule": "Avail", "hard": False, "msg": f"{sess['instr']} is only available on {', '.join(sorted(adays))} — not {sess['day']}."})
+        apers = set()
+        for x in (inf.get("avail_periods") or "").split(","):
+            m = re.search(r"\d+", x)
+            if m: apers.add(int(m.group()))
+        if apers and sess["t"] not in apers:
+            out.append({"rule": "Avail", "hard": False, "msg": f"{sess['instr']} is not marked available at {time_of(sess['t'])}."})
+        try:
+            ml = int(inf.get("module_limit"))
+        except (TypeError, ValueError):
+            ml = None
+        if ml is not None:
+            rows = [x for x in others if x.get("instr") == sess["instr"]] + [sess]
+            n = len({(x.get("mod"), x.get("code")) for x in rows})
+            if n > ml:
+                out.append({"rule": "Limit", "hard": True, "msg": f"{sess['instr']} would exceed their module limit of {ml} ({n} modules)."})
     return out
 
 
