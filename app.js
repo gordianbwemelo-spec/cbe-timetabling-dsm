@@ -198,7 +198,7 @@ R.flags=function(){const m=der().metrics;const hard=der().flags.filter(f=>f.seve
 };
 // ---------- Data management ----------
 const REFC={
-  instructors:{cols:['name','dept','qual','position'],sem:false,labels:['Name','Department','Qualification','Position'],num:[]},
+  instructors:{cols:['name','dept','qual','position','status','module_limit','avail_days','avail_periods'],sem:false,labels:['Name','Department','Qualification','Position','Status','Module limit','Available days','Available periods'],num:[]},
   teaching:{cols:['instructor','code','module'],sem:false,labels:['Instructor','Module code','Module'],num:[]},
   venues:{cols:['venue','capacity','premises','type'],sem:true,labels:['Venue','Capacity','Premises','Type'],num:['capacity']},
   curriculum:{cols:['programme','nta','code','module','credit','cls'],sem:true,labels:['Programme','NTA','Code','Module','Credit','Class'],num:[]},
@@ -223,18 +223,38 @@ R.catalogue=async function(){const r=await api(`/${SEM}/catalogue`); window.__ca
   h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}${x.cross?' <span class="pill amber">cross-cutting</span>':''}</td><td>${esc(x.credit)}</td><td>${esc(x.programmes)}</td><td>${esc(x.ntas)}</td><td><button class="btn small" data-i="${i}">Edit</button></td></tr>`).join('');
   $('t-catalogue').innerHTML=h+'</table></div>'; wireSearch();
   document.querySelectorAll('#t-catalogue button[data-i]').forEach(b=>{b.onclick=()=>{const x=window.__cat[+b.dataset.i];moduleModal(x.code,x.module);};});};
-function moduleModal(code,module){
-  $('modal').innerHTML='<h3>Edit module (applies everywhere)</h3>'+
+const NTAOPTS=['NTA4','NTA5','NTA6','NTA7 Y1','NTA7 Y2','NTA8','NTA9'];
+async function moduleModal(code,module){
+  let progs=[];try{progs=[...new Set((await api('/ref/enrolment')).rows.map(x=>x.programme))].sort();}catch(e){}
+  window.__asgCtx={code,module};
+  const draw=async()=>{const c=window.__asgCtx;
+    let asg=[];try{asg=(await api(`/${SEM}/module_assign?code=${encodeURIComponent(c.code||'')}&module=${encodeURIComponent(c.module||'')}`)).rows;}catch(e){}
+    $('m_asg').innerHTML='<table style="width:100%"><tr><th>Programme</th><th>NTA level</th><th></th></tr>'+
+      (asg.length?asg.map(a=>`<tr><td>${esc(a.programme)}</td><td>${esc(a.nta)}</td><td><button class="btn small danger" onclick="delAssign(${a._id})">Remove</button></td></tr>`).join(''):'<tr><td colspan="3" class="small">Not yet assigned to any programme.</td></tr>')+'</table>';};
+  window.__reAsg=draw;
+  $('modal').innerHTML='<h3>Module — details &amp; assignments</h3>'+
     '<div style="display:flex;flex-direction:column;gap:8px">'+
       `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Module name<input type="text" id="m_name" value="${esc(module)}"></label>`+
       `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Module code<input type="text" id="m_code" value="${esc(code)}"></label>`+
     '</div>'+
-    '<div style="text-align:right;margin-top:10px"><button class="btn sec" onclick="closeModal()">Cancel</button> <button class="btn" id="m_save">Save everywhere</button></div>';
-  $('overlay').classList.add('show');
+    '<div style="text-align:right;margin-top:6px"><button class="btn" id="m_save">Save name/code everywhere</button></div>'+
+    '<h4 style="margin:12px 0 4px;color:var(--navy)">Programmes &amp; NTA levels this module is taught in</h4>'+
+    '<div id="m_asg" class="wrap" style="max-height:170px;overflow:auto"></div>'+
+    '<div class="controls" style="margin-top:6px"><input type="text" id="m_prog" list="m_proglist" placeholder="Programme…" style="min-width:150px"><datalist id="m_proglist">'+progs.map(p=>`<option>${esc(p)}</option>`).join('')+'</datalist>'+
+      '<select id="m_nta">'+NTAOPTS.map(n=>`<option>${n}</option>`).join('')+'</select>'+
+      '<button class="btn" onclick="addAssign()">+ Add</button></div>'+
+    '<div style="text-align:right;margin-top:10px"><button class="btn sec" onclick="closeModal();R.catalogue()">Close</button></div>';
+  $('overlay').classList.add('show'); draw();
   $('m_save').onclick=async()=>{const nm=$('m_name').value.trim(),nc=$('m_code').value.trim();
-    const res=await api('/rename/module',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_module:module,old_code:code,new_module:nm,new_code:nc})});
-    closeModal();await loadData();renderNav();R.catalogue();toast('Updated '+((res.sessions||0)+(res.curriculum||0)+(res.teaching||0))+' record(s)');};
+    const res=await api('/rename/module',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_module:window.__asgCtx.module,old_code:window.__asgCtx.code,new_module:nm,new_code:nc})});
+    window.__asgCtx={code:nc,module:nm}; await loadData(); draw();
+    toast('Updated '+((res.sessions||0)+(res.curriculum||0)+(res.teaching||0))+' record(s)');};
 }
+async function addAssign(){const c=window.__asgCtx;const prog=$('m_prog').value.trim();const nta=$('m_nta').value;
+  if(!prog){alert('Enter or pick a programme.');return;}
+  await api(`/${SEM}/module_assign`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c.code,module:c.module,programme:prog,nta})});
+  $('m_prog').value=''; if(window.__reAsg)await window.__reAsg(); toast('Added '+prog+' · '+nta);}
+async function delAssign(id){await api(`/${SEM}/module_assign/${id}`,{method:'DELETE'}); if(window.__reAsg)await window.__reAsg(); toast('Removed');}
 R.streams=async function(){const r=await api(`/${SEM}/streams`);
   let h=`<h2>Streams — Semester ${SEM} <span class="small">(largest room ${r.maxcap} seats; suggested = enrolment ÷ largest room)</span></h2>`;
   h+='<div class="controls"><input type="text" id="dsearch" placeholder="Search programme…" style="min-width:260px"></div><div class="wrap"><table id="dtbl"><tr><th>Programme</th><th>NTA</th><th>Enrolment</th><th>Streams present</th><th># present</th><th>Suggested</th><th>Sessions</th></tr>';
@@ -297,19 +317,35 @@ async function teachAdd(){const el=$('tmod');const mod=el.value.trim();if(!mod){
   await api('/ref/teaching',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructor:window.__tInstr,code,module:mod,sem:SEM})});
   toast('Added module for '+window.__tInstr);renderTeaching();}
 async function teachDel(id){await api('/ref/teaching/'+id,{method:'DELETE'});toast('Removed');renderTeaching();}
-function lecturerModal(rid){const row=rid==null?{}:(TINSTRROWS.find(x=>x._id===rid)||{});
-  const depts=Array.from(new Set(TINSTRROWS.map(x=>x.dept).filter(Boolean))).sort();
+const LDAYS=['Mon','Tue','Wed','Thu','Fri','Sat'], LPERIODS=[7,9,11,13,15,17,19];
+async function lecturerModal(rid){
+  const all=(await api('/ref/instructors')).rows;
+  const row=rid==null?{}:(all.find(x=>x._id===rid)||{});
+  const depts=Array.from(new Set(all.map(x=>x.dept).filter(Boolean))).sort();
+  const status=row.status||'On duty'; const STAT=['On duty','Study leave','Part-time','Volunteer'];
+  const chDays=new Set((row.avail_days||'').split(',').map(s=>s.trim()).filter(Boolean));
+  const chPer=new Set((row.avail_periods||'').split(',').map(s=>{const m=(s.match(/\d+/)||[])[0];return m?+m:null;}).filter(x=>x!=null));
+  const fld=(lbl,inner)=>`<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">${lbl}${inner}</label>`;
   $('modal').innerHTML=`<h3>${rid==null?'New lecturer':'Edit lecturer'}</h3>`+
-    '<div style="display:flex;flex-direction:column;gap:8px">'+
-      `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Full name & title<input type="text" id="l_name" value="${esc(row.name||'')}"></label>`+
-      `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Department<input type="text" id="l_dept" list="deptlist" value="${esc(row.dept||(window.__tDept&&window.__tDept!=='All departments'?window.__tDept:''))}"><datalist id="deptlist">${depts.map(d=>`<option>${esc(d)}</option>`).join('')}</datalist></label>`+
-      `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Academic qualification<input type="text" id="l_qual" value="${esc(row.qual||'')}"></label>`+
-      `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Position<input type="text" id="l_position" value="${esc(row.position||'')}"></label>`+
+    '<div style="display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow:auto">'+
+      fld('Full name & title',`<input type="text" id="l_name" value="${esc(row.name||'')}">`)+
+      fld('Department',`<input type="text" id="l_dept" list="deptlist" value="${esc(row.dept||(window.__tDept&&window.__tDept!=='All departments'?window.__tDept:''))}"><datalist id="deptlist">${depts.map(d=>`<option>${esc(d)}</option>`).join('')}</datalist>`)+
+      fld('Academic qualification',`<input type="text" id="l_qual" value="${esc(row.qual||'')}">`)+
+      fld('Position',`<input type="text" id="l_position" value="${esc(row.position||'')}">`)+
+      fld('Duty status',`<select id="l_status">${STAT.map(s=>`<option ${s===status?'selected':''}>${s}</option>`).join('')}</select>`)+
+      fld('Module limit (blank = normal cap; set a smaller number for part-timers / volunteers)',`<input type="number" id="l_limit" value="${esc(row.module_limit||'')}" placeholder="e.g. 2">`)+
+      '<div style="font-size:11px;color:#4a5568">Available / preferred days <span class="small">(leave all unticked = any day)</span><br>'+
+        LDAYS.map(d=>`<label style="display:inline-flex;align-items:center;gap:4px;margin:3px 10px 0 0;font-size:12px"><input type="checkbox" class="l_day" value="${d}" ${chDays.has(d)?'checked':''}> ${d}</label>`).join('')+'</div>'+
+      '<div style="font-size:11px;color:#4a5568">Available / preferred periods <span class="small">(leave all unticked = any time)</span><br>'+
+        LPERIODS.map(t=>`<label style="display:inline-flex;align-items:center;gap:4px;margin:3px 10px 0 0;font-size:12px"><input type="checkbox" class="l_per" value="${t}" ${chPer.has(t)?'checked':''}> ${('0'+t).slice(-2)}:00</label>`).join('')+'</div>'+
     '</div>'+
     `<div style="text-align:right;margin-top:10px"><button class="btn sec" onclick="closeModal()">Cancel</button> <button class="btn" id="l_save">Save</button></div>`;
   $('overlay').classList.add('show');
   const origName=row.name;
-  $('l_save').onclick=async()=>{const body={name:$('l_name').value.trim(),dept:$('l_dept').value.trim(),qual:$('l_qual').value.trim(),position:$('l_position').value.trim()};
+  $('l_save').onclick=async()=>{const body={name:$('l_name').value.trim(),dept:$('l_dept').value.trim(),qual:$('l_qual').value.trim(),
+      position:$('l_position').value.trim(),status:$('l_status').value,module_limit:$('l_limit').value.trim(),
+      avail_days:[...document.querySelectorAll('.l_day:checked')].map(c=>c.value).join(','),
+      avail_periods:[...document.querySelectorAll('.l_per:checked')].map(c=>c.value).join(',')};
     if(!body.name){alert('Please enter the lecturer name.');return;}
     if(rid==null)await api('/ref/instructors',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     else await api('/ref/instructors/'+rid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -318,7 +354,7 @@ function lecturerModal(rid){const row=rid==null?{}:(TINSTRROWS.find(x=>x._id===r
       toast('Renamed everywhere: '+origName+' → '+body.name);}
     else toast('Lecturer saved');
     window.__tInstr=body.name; if(body.dept)window.__tDept=body.dept;
-    closeModal();await loadData();renderNav();renderTeaching();};
+    closeModal();await loadData();renderNav();if(CUR==='data')renderDataPanel(); if(DATASUB==='teaching')renderTeaching();};
 }
 function ntaLevel(n){const m=(n||'').match(/(\d)/);return m?+m[1]:9;}
 async function renderEnrolment(){
@@ -395,7 +431,9 @@ function wireInstrFilters(){const s=$('dsearch'),d=$('ddept');
   if(s)s.oninput=apply; if(d)d.onchange=apply;}
 function wireSearch(){const s=$('dsearch');if(!s)return;s.oninput=()=>{const q=s.value.toLowerCase();
   document.querySelectorAll('#dtbl tr').forEach((tr,i)=>{if(i===0)return;tr.style.display=(!q||tr.textContent.toLowerCase().includes(q))?'':'none';});};}
-function entityEdit(rid){const cfg=REFC[DATASUB];const row=rid==null?{}:DATAROWS.find(x=>x._id===rid)||{};
+function entityEdit(rid){
+  if(DATASUB==='instructors')return lecturerModal(rid);
+  const cfg=REFC[DATASUB];const row=rid==null?{}:DATAROWS.find(x=>x._id===rid)||{};
   $('modal').innerHTML=`<h3>${rid==null?'Add':'Edit'} — ${SUBS.find(s=>s[0]===DATASUB)[1]}</h3>`+
     '<div style="display:flex;flex-direction:column;gap:8px">'+cfg.cols.map((c,i)=>
       `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">${cfg.labels[i]}<input type="${cfg.num.includes(c)?'number':'text'}" id="d_${c}" value="${esc(row[c]==null?'':row[c])}"></label>`).join('')+'</div>'+
