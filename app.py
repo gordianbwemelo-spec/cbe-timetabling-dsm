@@ -86,6 +86,27 @@ def init_db():
     n = con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
     if n == 0:
         seed(con)
+    # one-time heal: older databases stored Semester I cohorts with the
+    # placeholder levels "TFC"/"TNC" (or blank) instead of real NTA levels.
+    # Reload Semester I from the corrected seed and rebuild its curriculum so
+    # NTA4-9 show everywhere. Semester II and any user edits there are untouched.
+    stale = con.execute("SELECT COUNT(*) FROM sessions WHERE semester='I' AND "
+                        "(nta IN ('TFC','TNC') OR IFNULL(nta,'')='')").fetchone()[0]
+    if stale:
+        seed(con, only_sem="I")
+        con.execute("DELETE FROM curriculum WHERE semester='I'")
+        seen = set()
+        for sem, prog, nta, code, mod in con.execute(
+                "SELECT DISTINCT semester, prog, nta, code, mod FROM sessions WHERE semester='I'"):
+            for bp in base_programmes(prog):
+                key = (sem, bp, nta or "", code or "", mod or "")
+                if key in seen:
+                    continue
+                seen.add(key)
+                con.execute("INSERT INTO curriculum(semester, programme, nta, code, module, credit, cls) VALUES(?,?,?,?,?,?,?)",
+                            (sem, bp, nta or "", code or "", mod or "", "", ""))
+        con.execute("DELETE FROM enrolment")   # rebuilt from real NTA levels below
+        con.commit()
     seed_reference(con)
     con.close()
 
