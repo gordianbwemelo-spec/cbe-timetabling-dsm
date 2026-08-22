@@ -1,0 +1,31 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CBE Timetabling System</title>
+<link rel="stylesheet" href="style.css">
+</head><body>
+<header>
+ <div><h1>COLLEGE OF BUSINESS EDUCATION — Timetabling System</h1>
+ <div class="sub">Master Timetable · Dar es Salaam Campus · 2025/2026 · shared central database</div></div>
+ <div id="status">connecting…</div>
+ <div class="semtoggle"><button id="semI" onclick="setSem('I')">Semester I</button><button id="semII" onclick="setSem('II')">Semester II</button></div>
+</header>
+<nav id="nav"></nav>
+<main>
+ <div class="tab active" id="t-overview"></div>
+ <div class="tab" id="t-timetable"></div>
+ <div class="tab" id="t-sessions"></div>
+ <div class="tab" id="t-instr"></div>
+ <div class="tab" id="t-venue"></div>
+ <div class="tab" id="t-workload"></div>
+ <div class="tab" id="t-capacity"></div>
+ <div class="tab" id="t-catalogue"></div>
+ <div class="tab" id="t-streams"></div>
+ <div class="tab" id="t-flags"></div>
+ <div class="tab" id="t-reports"></div>
+ <div class="tab" id="t-rules"></div>
+ <div class="tab" id="t-data"></div>
+</main>
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body></html>

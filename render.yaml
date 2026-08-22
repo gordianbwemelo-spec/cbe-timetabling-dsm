@@ -1,0 +1,25 @@
+# Render.com deployment for the CBE Timetabling System (Dar es Salaam Campus).
+# HOW TO DEPLOY:
+#   1. Put this whole folder in a GitHub repository (files at the repo root).
+#   2. In Render: New  ->  Blueprint  ->  select that repository.
+#      Render reads this file and deploys automatically, then gives you a
+#      web address like  https://cbe-timetabling-dsm.onrender.com
+services:
+  - type: web
+    name: cbe-timetabling-dsm
+    runtime: python
+    plan: starter                 # Starter keeps your data on the disk below (recommended).
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 8 --bind 0.0.0.0:$PORT
+    disk:
+      name: cbe-data              # persistent storage so edits survive restarts
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: CBE_DB
+        value: /var/data/timetable.db
+# ---------------------------------------------------------------------------
+# FREE option (no monthly cost): change "plan: starter" to "plan: free",
+# then DELETE the "disk:" block and the "envVars:" block above.
+# Note: on the free plan the service sleeps when idle and the database RESETS
+# when it restarts, so you would re-load data via the Data tab (CSV upload).
