@@ -750,6 +750,28 @@ def rename_module():
     db().commit()
     return jsonify(ok=True, sessions=s, curriculum=c, teaching=t)
 
+@app.post("/api/enrolment/add_programme")
+def add_programme():
+    b = request.get_json(force=True)
+    prog = (b.get("programme") or "").strip()
+    dept = (b.get("department") or "").strip() or guess_dept(prog)
+    levels = b.get("levels") or []
+    if not prog or not levels:
+        return jsonify(ok=False, error="programme and at least one NTA level required"), 400
+    added = 0
+    for lv in levels:
+        nta = str(lv).strip()
+        if not nta:
+            continue
+        if db().execute("SELECT 1 FROM enrolment WHERE programme=? AND nta=?", (prog, nta)).fetchone():
+            continue
+        yr = "2" if ("Y2" in nta or "Yr2" in nta) else "1"
+        db().execute("INSERT INTO enrolment(programme, department, nta, year, female, male, total) VALUES(?,?,?,?,?,?,?)",
+                     (prog, dept, nta, yr, "", "", ""))
+        added += 1
+    db().commit()
+    return jsonify(ok=True, added=added, programme=prog)
+
 @app.get("/api/<sem>/reports")
 def reports(sem):
     from collections import defaultdict
