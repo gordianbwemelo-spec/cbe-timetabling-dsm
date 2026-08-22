@@ -134,17 +134,24 @@ def seed_reference(con):
                 seen.add(key)
                 con.execute("INSERT INTO curriculum(semester, programme, nta, code, module, credit, cls) VALUES(?,?,?,?,?,?,?)",
                             (sem, bp, nta or "", code or "", mod or "", "", ""))
-    # enrolment: one row per (clean) programme / NTA level; figures left for the user
-    if con.execute("SELECT COUNT(*) FROM enrolment").fetchone()[0] == 0 or _messy(con, "enrolment"):
+    # enrolment: clustered per (clean) programme / real NTA level (4-9). Foundation
+    # codes such as TFC/TNC are excluded; figures are left for the user to fill.
+    en_cnt = con.execute("SELECT COUNT(*) FROM enrolment").fetchone()[0]
+    foundation = con.execute("SELECT COUNT(*) FROM enrolment WHERE nta LIKE '%TFC%' OR nta LIKE '%TNC%'").fetchone()[0]
+    if en_cnt == 0 or _messy(con, "enrolment") or foundation:
         con.execute("DELETE FROM enrolment"); seen = set()
-        for prog, nta in con.execute("SELECT DISTINCT prog, nta FROM sessions ORDER BY prog, nta"):
-            for bp in base_programmes(prog):
-                key = (bp, nta or "")
-                if key in seen: continue
-                seen.add(key)
-                yr = "2" if ("Yr2" in (nta or "") or "Y2" in (nta or "")) else "1"
-                con.execute("INSERT INTO enrolment(programme, department, nta, year, female, male, total) VALUES(?,?,?,?,?,?,?)",
-                            (bp, guess_dept(bp), nta or "", yr, "", "", ""))
+        rows = con.execute("SELECT DISTINCT programme, nta FROM curriculum WHERE nta LIKE 'NTA%'").fetchall()
+        def keyf(r):
+            m = re.search(r"NTA\s*(\d)", r[1] or ""); lvl = int(m.group(1)) if m else 9
+            yr = 2 if ("Y2" in (r[1] or "") or "Yr2" in (r[1] or "")) else 1
+            return (r[0] or "", lvl, yr)
+        for prog, nta in sorted(rows, key=keyf):
+            key = (prog, nta)
+            if key in seen: continue
+            seen.add(key)
+            yr = "2" if ("Y2" in (nta or "") or "Yr2" in (nta or "")) else "1"
+            con.execute("INSERT INTO enrolment(programme, department, nta, year, female, male, total) VALUES(?,?,?,?,?,?,?)",
+                        (prog, guess_dept(prog), nta, yr, "", "", ""))
     # backfill department for any rows still missing it
     for rid, prog in con.execute("SELECT rowid, programme FROM enrolment WHERE IFNULL(department,'')=''").fetchall():
         con.execute("UPDATE enrolment SET department=? WHERE rowid=?", (guess_dept(prog), rid))
