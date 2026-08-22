@@ -325,7 +325,8 @@ async function renderEnrolment(){
   const r=await api('/ref/enrolment'); DATAROWS=r.rows;
   const byProg={}; r.rows.forEach(x=>{(byProg[x.programme]||(byProg[x.programme]=[])).push(x);});
   let h='<div class="note">Enrolment is grouped <b>per programme, then per NTA level</b>. Fill in the student numbers (Female, Male, Total) for each level. Use <b>Download template</b> / <b>Upload CSV</b> to load many at once.</div>';
-  h+=`<div class="controls"><button class="btn" onclick="entityEdit(null)">+ Add row</button>`+
+  h+=`<div class="controls"><button class="btn" onclick="progModal()">+ Add programme</button>`+
+     `<button class="btn sec" onclick="entityEdit(null)">+ Add single row</button>`+
      `<a class="btn sec" href="/api/ref/enrolment/template.csv">Download template</a>`+
      `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('enrolment',this)"></label>`+
      `<input type="text" id="esearch" placeholder="Search programme…" style="min-width:220px"><span class="small">${Object.keys(byProg).length} programmes</span></div>`;
@@ -343,6 +344,27 @@ async function renderEnrolment(){
   p.innerHTML=h;
   const s=$('esearch'); if(s)s.oninput=()=>{const qq=s.value.toLowerCase();
     document.querySelectorAll('#etbl tr[data-prog]').forEach(tr=>{tr.style.display=(!qq||tr.dataset.prog.toLowerCase().includes(qq))?'':'none';});};
+}
+function progModal(){
+  const depts=[...new Set((DATAROWS||[]).map(x=>x.department).filter(Boolean))].sort();
+  const levels=["NTA4","NTA5","NTA6","NTA7 Y1","NTA7 Y2","NTA8","NTA9"];
+  const pre=new Set(["NTA4","NTA5","NTA6","NTA7 Y1","NTA8"]);
+  $('modal').innerHTML='<h3>Add a programme</h3>'+
+    '<div style="display:flex;flex-direction:column;gap:8px">'+
+      '<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Programme name<input type="text" id="pg_name" placeholder="e.g. Business Administration"></label>'+
+      `<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Department<input type="text" id="pg_dept" list="pgdepts" placeholder="e.g. Business Administration"><datalist id="pgdepts">${depts.map(d=>`<option>${esc(d)}</option>`).join('')}</datalist></label>`+
+      '<div><div class="small" style="margin-bottom:4px">NTA levels this programme offers (tick all that apply):</div>'+
+        levels.map(l=>`<label style="display:inline-flex;align-items:center;gap:5px;margin:2px 12px 4px 0;font-size:12px"><input type="checkbox" class="pg_lvl" value="${l}" ${pre.has(l)?'checked':''}> ${l.replace('Y1',' Yr1').replace('Y2',' Yr2')}</label>`).join('')+
+      '</div>'+
+    '</div>'+
+    '<div style="text-align:right;margin-top:10px"><button class="btn sec" onclick="closeModal()">Cancel</button> <button class="btn" id="pg_save">Add programme</button></div>';
+  $('overlay').classList.add('show');
+  $('pg_save').onclick=async()=>{const name=$('pg_name').value.trim();if(!name){alert('Please enter a programme name.');return;}
+    const dept=$('pg_dept').value.trim();
+    const chosen=[...document.querySelectorAll('.pg_lvl:checked')].map(c=>c.value);
+    if(!chosen.length){alert('Please tick at least one NTA level.');return;}
+    let r;try{r=await api('/enrolment/add_programme',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({programme:name,department:dept,levels:chosen})});}catch(e){alert('Could not add: '+e.message);return;}
+    closeModal();renderEnrolment();toast('Added '+name+' with '+r.added+' NTA level(s)');};
 }
 async function renderDataPanel(){
   const p=$('datapanel');
