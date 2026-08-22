@@ -186,6 +186,10 @@ R.flags=function(){const m=der().metrics;const hard=der().flags.filter(f=>f.seve
    `<div class="card ${m.overloads?'warn':'ok'}"><div class="n">${m.overloads}</div><div class="l">Instructors over a cap</div></div>`+
    `<div class="card"><div class="n">${m.softs}</div><div class="l">At/over soft limit</div></div></div>`;
   h+='<div class="note">'+esc(D.model_note||'')+'</div>';
+  const part=der().flags.filter(f=>f.type==='PART_TIMER_NEEDED'||f.type==='NO_CAPABLE_STAFF');
+  if(part.length)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${part.length}</b> module(s) could not be staffed — qualified lecturers are at capacity, on study leave, or none can teach them.</span>`+
+    `<button class="btn" onclick="lecturerModal(null,'Part-time')">+ Add part-time lecturer</button>`+
+    `<span class="small">After adding the lecturer (and their teaching capability), go to Rules → Generate again.</span></div>`;
   const r1=der().flags.filter(f=>f.type.startsWith('R1')).length;
   if(r1)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${r1}</b> module/stream blocks don't yet have their two weekly sessions.</span>`+
     `<button class="btn" onclick="autocompleteR1()">⚙ Auto-complete missing 2nd sessions</button>`+
@@ -294,7 +298,7 @@ async function renderTeaching(){
   const modByName={}; mods.rows.forEach(m=>{if(m.module)modByName[m.module]=m.code;}); window.__modByName=modByName;
   const cur=ins.rows.find(r=>r.name===window.__tInstr)||{};
   const rows=teach.rows.filter(r=>r.instructor===window.__tInstr);
-  let h='<div class="note">Choose a department and lecturer, then add the modules they can teach. Use <b>+ New lecturer</b> to add a lecturer with their qualification. The system uses all this so modules are only allocated to qualified staff.</div>';
+  let h='<div class="note">Choose a department and lecturer, then add <b>every</b> module they are able to teach — there is no limit here. How many they are actually <b>given</b> is decided later during generation (workload), where each lecturer’s cap and any module limit apply. Use <b>+ New lecturer</b> to add someone (including a part-timer) with their qualification.</div>';
   h+='<div class="controls"><b>Department:</b> <select id="tdept">'+depts.map(d=>`<option ${d===window.__tDept?'selected':''}>${esc(d)}</option>`).join('')+'</select>'+
      '<b>Lecturer:</b> <select id="tinstr">'+(names.length?names.map(n=>`<option ${n===window.__tInstr?'selected':''}>${esc(n)}</option>`).join(''):'<option>(none in this department)</option>')+'</select>'+
      '<button class="btn" onclick="lecturerModal(null)">+ New lecturer</button>'+
@@ -318,11 +322,11 @@ async function teachAdd(){const el=$('tmod');const mod=el.value.trim();if(!mod){
   toast('Added module for '+window.__tInstr);renderTeaching();}
 async function teachDel(id){await api('/ref/teaching/'+id,{method:'DELETE'});toast('Removed');renderTeaching();}
 const LDAYS=['Mon','Tue','Wed','Thu','Fri','Sat'], LPERIODS=[7,9,11,13,15,17,19];
-async function lecturerModal(rid){
+async function lecturerModal(rid,preset){
   const all=(await api('/ref/instructors')).rows;
   const row=rid==null?{}:(all.find(x=>x._id===rid)||{});
   const depts=Array.from(new Set(all.map(x=>x.dept).filter(Boolean))).sort();
-  const status=row.status||'On duty'; const STAT=['On duty','Study leave','Part-time','Volunteer'];
+  const status=row.status||preset||'On duty'; const STAT=['On duty','Study leave','Part-time','Volunteer'];
   const chDays=new Set((row.avail_days||'').split(',').map(s=>s.trim()).filter(Boolean));
   const chPer=new Set((row.avail_periods||'').split(',').map(s=>{const m=(s.match(/\d+/)||[])[0];return m?+m:null;}).filter(x=>x!=null));
   const fld=(lbl,inner)=>`<label style="font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">${lbl}${inner}</label>`;
