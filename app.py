@@ -63,6 +63,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS enrolment(programme TEXT, nta TEXT, year TEXT, female TEXT, male TEXT, total INTEGER);
     CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT);
     CREATE TABLE IF NOT EXISTS custom_rules(text TEXT);
+    CREATE TABLE IF NOT EXISTS gen_flags(semester TEXT, type TEXT, detail TEXT, severity TEXT);
     """)
     for k, v in SETTINGS_DEFAULTS.items():
         con.execute("INSERT OR IGNORE INTO settings(k, v) VALUES(?, ?)", (k, v))
@@ -238,6 +239,13 @@ def get_data(sem):
     if sem not in ("I", "II"): return jsonify(error="bad semester"), 404
     S = sess_rows(sem); V = venues(sem); I = instructors(); M = meta()
     d = rules.derive(S, V, I, sem)
+    gf = [{"type": r["type"], "detail": r["detail"], "severity": r["severity"]}
+          for r in db().execute("SELECT type, detail, severity FROM gen_flags WHERE semester=?", (sem,))]
+    if gf:
+        d["flags"] = d["flags"] + gf
+        d["metrics"]["hard"] += sum(1 for f in gf if f["severity"] == "hard")
+        d["metrics"]["review"] += sum(1 for f in gf if f["severity"] == "review")
+        d["metrics"]["part_timer_needed"] = sum(1 for f in gf if f["type"] == "PART_TIMER_NEEDED")
     return jsonify(sessions=S, venues=V, instructors=I,
                    meta=json.loads(M.get("meta", "{}")),
                    model_note=M.get("model_note_" + sem, ""),
@@ -785,9 +793,14 @@ def generate_tt(sem):
     for s in result["sessions"]:
         s = {**s, "semester": sem}
         db().execute(f"INSERT INTO sessions({cols}) VALUES({qs})", tuple(s.get(f) for f in SESSION_FIELDS))
+    db().execute("DELETE FROM gen_flags WHERE semester=?", (sem,))
+    for f in result["flags"]:
+        db().execute("INSERT INTO gen_flags(semester, type, detail, severity) VALUES(?,?,?,?)",
+                     (sem, f["type"], f["detail"], f.get("severity", "hard")))
     db().commit()
+    part = sum(1 for f in result["flags"] if f["type"] == "PART_TIMER_NEEDED")
     return jsonify(ok=True, stats=result["stats"], flags_count=len(result["flags"]),
-                   flags_sample=[f["detail"] for f in result["flags"][:20]])
+                   part_timer_needed=part, flags_sample=[f["detail"] for f in result["flags"][:20]])
 
 @app.post("/api/rename/instructor")
 def rename_instructor():
