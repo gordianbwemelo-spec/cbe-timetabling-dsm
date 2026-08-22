@@ -180,8 +180,13 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                         done = True
                         break
                 if not done:
-                    reason = "no capable/available instructor" if not cand else "no free room/slot within caps"
-                    flags.append({"type": "UNPLACED", "detail": f"{prog} {nta} str {stream} — {mod}: {reason}.", "severity": "hard"})
+                    if not cand:
+                        ftype, reason = "NO_CAPABLE_STAFF", "no qualified, on-duty lecturer can teach this — add teaching capability or a part-timer"
+                    elif all((len(imod[n]) >= mod_limit(n)) or (iday[n] >= cap_day and ieve[n] >= cap_eve) for n in cand):
+                        ftype, reason = "PART_TIMER_NEEDED", "all qualified lecturers are at capacity — a PART-TIMER is needed"
+                    else:
+                        ftype, reason = "UNPLACED", "no free room/time slot within the rules"
+                    flags.append({"type": ftype, "detail": f"{prog} {nta} str {stream} — {mod}: {reason}.", "severity": "hard"})
 
     stats["sessions_flagged"] = stats["sessions_needed"] - stats["sessions_placed"]
     return {"sessions": sessions, "flags": flags, "stats": stats}
