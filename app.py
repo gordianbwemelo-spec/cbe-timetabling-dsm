@@ -73,6 +73,11 @@ def init_db():
     icols = [r[1] for r in con.execute("PRAGMA table_info(instructors)")]
     if "position" not in icols:
         con.execute("ALTER TABLE instructors ADD COLUMN position TEXT")
+    for col, default in (("status", "On duty"), ("module_limit", ""), ("avail_days", ""), ("avail_periods", "")):
+        if col not in icols:
+            con.execute("ALTER TABLE instructors ADD COLUMN %s TEXT" % col)
+            if default:
+                con.execute("UPDATE instructors SET %s=? WHERE IFNULL(%s,'')=''" % (col, col), (default,))
     ecols = [r[1] for r in con.execute("PRAGMA table_info(enrolment)")]
     if "department" not in ecols:
         con.execute("ALTER TABLE enrolment ADD COLUMN department TEXT")
@@ -158,6 +163,7 @@ def seed_reference(con):
     # backfill department for any rows still missing it
     for rid, prog in con.execute("SELECT rowid, programme FROM enrolment WHERE IFNULL(department,'')=''").fetchall():
         con.execute("UPDATE enrolment SET department=? WHERE rowid=?", (guess_dept(prog), rid))
+    con.execute("UPDATE instructors SET status='On duty' WHERE IFNULL(status,'')=''")
     con.commit()
 
 def seed(con, only_sem=None):
@@ -200,8 +206,16 @@ def venues(sem):
 def venmap(sem): return {v["venue"]: v for v in venues(sem)}
 
 def instructors():
-    return {r["name"]: {"dept": r["dept"], "qual": r["qual"], "is_phd": bool(r["is_phd"]), "matched": bool(r["matched"])}
-            for r in db().execute("SELECT * FROM instructors")}
+    out = {}
+    for r in db().execute("SELECT * FROM instructors"):
+        k = r.keys()
+        out[r["name"]] = {"dept": r["dept"], "qual": r["qual"], "is_phd": bool(r["is_phd"]),
+                          "matched": bool(r["matched"]),
+                          "status": (r["status"] if "status" in k else "On duty") or "On duty",
+                          "module_limit": (r["module_limit"] if "module_limit" in k else "") or "",
+                          "avail_days": (r["avail_days"] if "avail_days" in k else "") or "",
+                          "avail_periods": (r["avail_periods"] if "avail_periods" in k else "") or ""}
+    return out
 
 def meta():
     return {r["k"]: r["v"] for r in db().execute("SELECT * FROM meta")}
@@ -543,7 +557,7 @@ def autocomplete_r1(sem):
 
 # ----------------------------------------------------------------- reference data (Data pages)
 REF = {
-    "instructors": {"table": "instructors", "cols": ["name", "dept", "qual", "position"], "sem": False, "ints": [],
+    "instructors": {"table": "instructors", "cols": ["name", "dept", "qual", "position", "status", "module_limit", "avail_days", "avail_periods"], "sem": False, "ints": [],
                     "title": "Instructors & qualifications"},
     "teaching":    {"table": "teaching", "cols": ["instructor", "code", "module"], "sem": False, "ints": [],
                     "title": "Modules each instructor can teach"},
@@ -661,6 +675,34 @@ def venuesizes(sem):
     med = lambda x: x[len(x) // 2] if x else 0
     return jsonify(largest_hall=(halls[-1] if halls else 0), typical_classroom=med(classrooms),
                    typical_lab=med(labs), postgrad_hall=(max(pg) if pg else 0))
+
+@app.get("/api/<sem>/module_assign")
+def module_assign_list(sem):
+    code = request.args.get("code", ""); module = request.args.get("module", "")
+    rows = db().execute("SELECT rowid AS _id, programme, nta FROM curriculum WHERE semester=? AND code=? AND module=? ORDER BY programme, nta",
+                        (sem, code, module)).fetchall()
+    return jsonify(rows=[dict(r) for r in rows])
+
+@app.post("/api/<sem>/module_assign")
+def module_assign_add(sem):
+    b = request.get_json(force=True)
+    code = (b.get("code") or "").strip(); module = (b.get("module") or "").strip()
+    prog = (b.get("programme") or "").strip(); nta = (b.get("nta") or "").strip()
+    credit = (b.get("credit") or "")
+    if not module or not prog or not nta:
+        return jsonify(ok=False, error="programme, NTA level and module are required"), 400
+    if db().execute("SELECT 1 FROM curriculum WHERE semester=? AND programme=? AND nta=? AND code=? AND module=?",
+                    (sem, prog, nta, code, module)).fetchone():
+        return jsonify(ok=True, added=0)
+    db().execute("INSERT INTO curriculum(semester, programme, nta, code, module, credit, cls) VALUES(?,?,?,?,?,?,?)",
+                 (sem, prog, nta, code, module, credit, ""))
+    db().commit()
+    return jsonify(ok=True, added=1)
+
+@app.delete("/api/<sem>/module_assign/<int:rid>")
+def module_assign_del(sem, rid):
+    db().execute("DELETE FROM curriculum WHERE rowid=? AND semester=?", (rid, sem)); db().commit()
+    return jsonify(ok=True)
 
 @app.get("/api/<sem>/catalogue")
 def catalogue(sem):
