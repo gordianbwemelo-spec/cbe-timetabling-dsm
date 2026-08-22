@@ -22,6 +22,7 @@ function der(){return D.derived;}
 async function setSem(sem){SEM=sem;$('semI').className=sem==='I'?'on':'';$('semII').className=sem==='II'?'on':'';await loadData();renderNav();R[CUR]();}
 function renderNav(){const m=der().metrics;
   const items=[['overview','Overview'],['timetable','Timetable'],['sessions','Sessions'],['instr','Instructor TT'],
+   ['progtt','Programme TT'],
    ['venue','Venue Dashboard'],['workload','Workload'],['capacity','Venue Capacity'],['catalogue','Catalogue'],
    ['streams','Streams'],['flags','Red-flags'],['reports','Reports'],['rules','Rules'],['data','Data']];
   $('nav').innerHTML=items.map(it=>`<button class="${it[0]===CUR?'active':''}" onclick="go('${it[0]}')">${it[1]}${it[0]==='flags'&&m.hard?`<span class="badge">${m.hard}</span>`:''}</button>`).join('');
@@ -161,6 +162,38 @@ R.instr=function(){const names=[...new Set(S().map(s=>s.instr).filter(Boolean))]
     $('ig').innerHTML=g;};
   $('isel').onchange=draw;draw();
 };
+function baseProgs(p){p=(p||'').replace(/\(STRM[^)]*\)/gi,'');
+  return [...new Set(p.split(/[+,]/).map(s=>s.replace(/\s+/g,' ').trim().replace(/^,+|,+$/g,'')).filter(Boolean))];}
+R.progtt=function(){const all=S();
+  const set=new Set(); all.forEach(s=>baseProgs(s.prog).forEach(p=>set.add(p)));
+  const progs=[...set].sort();
+  if(!window.__ptProg||!progs.includes(window.__ptProg))window.__ptProg=progs[0]||'';
+  let h=`<h2>Programme Timetable — Semester ${SEM}</h2>`;
+  h+=`<div class="controls noprint"><b>Programme:</b> <select id="ptsel">`+progs.map(p=>`<option ${p===window.__ptProg?'selected':''}>${esc(p)}</option>`).join('')+`</select>`+
+     `<button class="btn sec" onclick="window.print()">🖨 Print / Save PDF</button>`+
+     `<button class="btn sec" onclick="progExportXls()">Download Excel</button>`+
+     `<button class="btn sec" onclick="progExportCSV()">Download CSV</button></div>`;
+  h+='<div id="ptgrid" class="wrap"></div>';
+  $('t-progtt').innerHTML=h;
+  const draw=()=>{const prog=$('ptsel').value; window.__ptProg=prog;
+    const rows=all.filter(s=>baseProgs(s.prog).includes(prog));
+    let g=`<h3>${esc(prog)} — weekly timetable, Semester ${SEM} <span class="small">(${rows.length} sessions)</span></h3>`;
+    g+='<table class="grid"><tr><th>Day</th>'+PERIODS.map(p=>`<th>${p}</th>`).join('')+'</tr>';
+    DAYS.forEach(d=>{g+=`<tr><td style="text-align:left"><b>${d}</b></td>`+STARTS.map(t=>{
+      const cell=rows.filter(s=>s.day===d&&s.t===t);
+      return cell.length?`<td class="occ">${cell.map(s=>esc(s.mod)+'\n'+esc(s.prog)+'\n@'+esc(s.venue)+' · '+esc(s.instr)).join('\n———\n')}</td>`:'<td class="vac"></td>';
+    }).join('')+'</tr>';});
+    $('ptgrid').innerHTML=g+'</table>';};
+  $('ptsel').onchange=draw; draw();
+};
+const PHEAD=['Day','Period','Venue','Cohort/Stream','NTA','Module','Code','Instructor','Occupancy'];
+function progRows(){const prog=window.__ptProg;
+  return S().filter(s=>baseProgs(s.prog).includes(prog)).sort((a,b)=>DAYS.indexOf(a.day)-DAYS.indexOf(b.day)||a.t-b.t)
+    .map(s=>[s.day,timeOf(s.t),s.venue,s.prog,s.nta,s.mod,s.code,s.instr,s.occ]);}
+function progExportCSV(){dl([csvR(PHEAD)].concat(progRows().map(csvR)).join('\n'),`CBE_Sem${SEM}_${window.__ptProg}_timetable.csv`,'text/csv');}
+function progExportXls(){let t='<table border=1><tr>'+PHEAD.map(h=>'<th>'+h+'</th>').join('')+'</tr>';
+  progRows().forEach(r=>t+='<tr>'+r.map(c=>'<td>'+(''+c).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</td>').join('')+'</tr>');
+  dl('<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>'+t+'</table></body></html>',`CBE_Sem${SEM}_${window.__ptProg}_timetable.xls`,'application/vnd.ms-excel');}
 R.venue=function(){const vd=[...der().vutil].sort((a,b)=>(a.premises==='Main'?0:1)-(b.premises==='Main'?0:1)||b.periods_used-a.periods_used);
   let h=`<h2>Venue Dashboard — Semester ${SEM}</h2><div class="wrap"><table><tr><th>Venue</th><th>Cap</th><th>Type</th><th>Premises</th><th>Periods used</th><th>Available</th><th>Seat-periods</th><th>Utilisation</th></tr>`;
   vd.forEach(o=>h+=`<tr><td>${esc(o.venue)}</td><td>${o.capacity}</td><td>${o.type}</td><td>${o.premises}</td><td>${o.periods_used}</td><td>${o.periods_avail}</td><td>${o.seat_periods_used.toLocaleString()}</td><td>${o.utilisation}%</td></tr>`);
