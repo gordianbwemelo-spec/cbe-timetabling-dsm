@@ -168,32 +168,42 @@ R.progtt=function(){const all=S();
   const set=new Set(); all.forEach(s=>baseProgs(s.prog).forEach(p=>set.add(p)));
   const progs=[...set].sort();
   if(!window.__ptProg||!progs.includes(window.__ptProg))window.__ptProg=progs[0]||'';
+  const ntas=[...new Set(all.filter(s=>baseProgs(s.prog).includes(window.__ptProg)).map(s=>s.nta))].sort((a,b)=>ntaLevel(a)-ntaLevel(b));
+  if(!window.__ptNta||!ntas.includes(window.__ptNta))window.__ptNta=ntas[0]||'';
+  const strms=['All streams',...[...new Set(all.filter(s=>baseProgs(s.prog).includes(window.__ptProg)&&s.nta===window.__ptNta).map(s=>s.stream).filter(x=>x))].sort()];
+  if(!window.__ptStream||!strms.includes(window.__ptStream))window.__ptStream='All streams';
   let h=`<h2>Programme Timetable — Semester ${SEM}</h2>`;
   h+=`<div class="controls noprint"><b>Programme:</b> <select id="ptsel">`+progs.map(p=>`<option ${p===window.__ptProg?'selected':''}>${esc(p)}</option>`).join('')+`</select>`+
+     `<b>NTA level:</b> <select id="ptnta">`+ntas.map(n=>`<option ${n===window.__ptNta?'selected':''}>${esc(n)}</option>`).join('')+`</select>`+
+     `<b>Stream:</b> <select id="ptstrm">`+strms.map(s=>`<option ${s===window.__ptStream?'selected':''}>${esc(s)}</option>`).join('')+`</select>`+
      `<button class="btn sec" onclick="window.print()">🖨 Print / Save PDF</button>`+
-     `<button class="btn sec" onclick="progExportXls()">Download Excel</button>`+
-     `<button class="btn sec" onclick="progExportCSV()">Download CSV</button></div>`;
+     `<button class="btn sec" onclick="progExportXls()">Excel</button>`+
+     `<button class="btn sec" onclick="progExportCSV()">CSV</button></div>`;
   h+='<div id="ptgrid" class="wrap"></div>';
   $('t-progtt').innerHTML=h;
-  const draw=()=>{const prog=$('ptsel').value; window.__ptProg=prog;
-    const rows=all.filter(s=>baseProgs(s.prog).includes(prog));
-    let g=`<h3>${esc(prog)} — weekly timetable, Semester ${SEM} <span class="small">(${rows.length} sessions)</span></h3>`;
+  const draw=()=>{const rows=ptRows();
+    let g=`<h3>${esc(window.__ptProg)} · ${esc(window.__ptNta)}${window.__ptStream!=='All streams'?' · Stream '+esc(window.__ptStream):''} — Semester ${SEM} <span class="small">(${rows.length} sessions)</span></h3>`;
     g+='<table class="grid"><tr><th>Day</th>'+PERIODS.map(p=>`<th>${p}</th>`).join('')+'</tr>';
     DAYS.forEach(d=>{g+=`<tr><td style="text-align:left"><b>${d}</b></td>`+STARTS.map(t=>{
       const cell=rows.filter(s=>s.day===d&&s.t===t);
       return cell.length?`<td class="occ">${cell.map(s=>esc(s.mod)+'\n'+esc(s.prog)+'\n@'+esc(s.venue)+' · '+esc(s.instr)).join('\n———\n')}</td>`:'<td class="vac"></td>';
     }).join('')+'</tr>';});
     $('ptgrid').innerHTML=g+'</table>';};
-  $('ptsel').onchange=draw; draw();
+  $('ptsel').onchange=()=>{window.__ptProg=$('ptsel').value;window.__ptNta='';window.__ptStream='';R.progtt();};
+  $('ptnta').onchange=()=>{window.__ptNta=$('ptnta').value;window.__ptStream='';R.progtt();};
+  $('ptstrm').onchange=()=>{window.__ptStream=$('ptstrm').value;draw();};
+  draw();
 };
+function ptRows(){const prog=window.__ptProg,nta=window.__ptNta,strm=window.__ptStream;
+  return S().filter(s=>baseProgs(s.prog).includes(prog)&&s.nta===nta&&(!strm||strm==='All streams'||s.stream===strm));}
 const PHEAD=['Day','Period','Venue','Cohort/Stream','NTA','Module','Code','Instructor','Occupancy'];
-function progRows(){const prog=window.__ptProg;
-  return S().filter(s=>baseProgs(s.prog).includes(prog)).sort((a,b)=>DAYS.indexOf(a.day)-DAYS.indexOf(b.day)||a.t-b.t)
+function progRows(){return ptRows().slice().sort((a,b)=>DAYS.indexOf(a.day)-DAYS.indexOf(b.day)||a.t-b.t)
     .map(s=>[s.day,timeOf(s.t),s.venue,s.prog,s.nta,s.mod,s.code,s.instr,s.occ]);}
-function progExportCSV(){dl([csvR(PHEAD)].concat(progRows().map(csvR)).join('\n'),`CBE_Sem${SEM}_${window.__ptProg}_timetable.csv`,'text/csv');}
+function ptFname(){return `CBE_Sem${SEM}_${window.__ptProg}_${(window.__ptNta||'').replace(/\s+/g,'')}${window.__ptStream&&window.__ptStream!=='All streams'?'_'+window.__ptStream:''}_timetable`;}
+function progExportCSV(){dl([csvR(PHEAD)].concat(progRows().map(csvR)).join('\n'),ptFname()+'.csv','text/csv');}
 function progExportXls(){let t='<table border=1><tr>'+PHEAD.map(h=>'<th>'+h+'</th>').join('')+'</tr>';
   progRows().forEach(r=>t+='<tr>'+r.map(c=>'<td>'+(''+c).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</td>').join('')+'</tr>');
-  dl('<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>'+t+'</table></body></html>',`CBE_Sem${SEM}_${window.__ptProg}_timetable.xls`,'application/vnd.ms-excel');}
+  dl('<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>'+t+'</table></body></html>',ptFname()+'.xls','application/vnd.ms-excel');}
 R.venue=function(){const vd=[...der().vutil].sort((a,b)=>(a.premises==='Main'?0:1)-(b.premises==='Main'?0:1)||b.periods_used-a.periods_used);
   let h=`<h2>Venue Dashboard — Semester ${SEM}</h2><div class="wrap"><table><tr><th>Venue</th><th>Cap</th><th>Type</th><th>Premises</th><th>Periods used</th><th>Available</th><th>Seat-periods</th><th>Utilisation</th></tr>`;
   vd.forEach(o=>h+=`<tr><td>${esc(o.venue)}</td><td>${o.capacity}</td><td>${o.type}</td><td>${o.premises}</td><td>${o.periods_used}</td><td>${o.periods_avail}</td><td>${o.seat_periods_used.toLocaleString()}</td><td>${o.utilisation}%</td></tr>`);
