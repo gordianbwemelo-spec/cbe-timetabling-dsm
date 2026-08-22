@@ -8,7 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory, Response, g
 import rules, generator
 
 SETTINGS_DEFAULTS = {
-    "seat_tolerance": "10", "max_stream_size": "120", "lab_size": "40", "classroom_size": "56",
+    "seat_tolerance": "10", "max_stream_size": "auto", "lab_size": "auto", "classroom_size": "auto",
     "module_cap": "7", "daytime_cap": "32", "evening_cap": "20",
     "soft_modules": "6", "soft_daytime": "28", "soft_evening": "16",
     "days": "Mon,Tue,Wed,Thu,Fri,Sat",
@@ -66,6 +66,9 @@ def init_db():
     """)
     for k, v in SETTINGS_DEFAULTS.items():
         con.execute("INSERT OR IGNORE INTO settings(k, v) VALUES(?, ?)", (k, v))
+    # migrate the old fixed sizes to venue-driven "auto" (only if still untouched)
+    for k, old in (("max_stream_size", "120"), ("classroom_size", "56"), ("lab_size", "40")):
+        con.execute("UPDATE settings SET v='auto' WHERE k=? AND v=?", (k, old))
     # add columns to older databases if missing
     icols = [r[1] for r in con.execute("PRAGMA table_info(instructors)")]
     if "position" not in icols:
@@ -648,11 +651,36 @@ def modules_all():
                            ORDER BY module""").fetchall()
     return jsonify(rows=[{"code": r["code"], "module": r["module"]} for r in rows if r["module"]])
 
+@app.get("/api/<sem>/venuesizes")
+def venuesizes(sem):
+    V = venues(sem)
+    halls = sorted(v["capacity"] for v in V if not v["is_lab"])
+    classrooms = sorted(v["capacity"] for v in V if not v["is_lab"] and v["capacity"] <= 90)
+    labs = sorted(v["capacity"] for v in V if v["is_lab"])
+    pg = [v["capacity"] for v in V if v["venue"] in ("BTA", "BTB", "BTC")]
+    med = lambda x: x[len(x) // 2] if x else 0
+    return jsonify(largest_hall=(halls[-1] if halls else 0), typical_classroom=med(classrooms),
+                   typical_lab=med(labs), postgrad_hall=(max(pg) if pg else 0))
+
 @app.get("/api/<sem>/catalogue")
 def catalogue(sem):
-    rows = db().execute("""SELECT code, module, MAX(credit) AS credit, COUNT(*) AS uses
-                           FROM curriculum WHERE semester=? GROUP BY code, module ORDER BY module""", (sem,)).fetchall()
-    return jsonify(rows=[dict(r) for r in rows])
+    from collections import defaultdict
+    agg = {}
+    for r in db().execute("SELECT code, module, credit, programme, nta FROM curriculum WHERE semester=?", (sem,)):
+        k = (r["code"], r["module"])
+        d = agg.setdefault(k, {"code": r["code"], "module": r["module"], "credit": r["credit"], "progs": set(), "ntas": set()})
+        if r["credit"] and not d["credit"]: d["credit"] = r["credit"]
+        if r["programme"]: d["progs"].add(r["programme"])
+        if r["nta"]: d["ntas"].add(r["nta"])
+    def lvl(n):
+        m = re.search(r"(\d)", n or ""); return (int(m.group(1)) if m else 9, n or "")
+    out = [{"code": d["code"], "module": d["module"], "credit": d["credit"],
+            "programmes": ", ".join(sorted(d["progs"])),
+            "ntas": ", ".join(sorted(d["ntas"], key=lvl)),
+            "n_prog": len(d["progs"]), "cross": len(d["progs"]) > 1}
+           for d in agg.values()]
+    out.sort(key=lambda x: x["module"] or "")
+    return jsonify(rows=out)
 
 @app.get("/api/<sem>/streams")
 def streams(sem):
