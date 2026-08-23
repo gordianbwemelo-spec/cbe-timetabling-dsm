@@ -237,6 +237,10 @@ R.flags=function(){const m=der().metrics;const hard=der().flags.filter(f=>f.seve
   if(r1)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${r1}</b> module/stream blocks don't yet have their two weekly sessions.</span>`+
     `<button class="btn" onclick="autocompleteR1()">⚙ Auto-complete missing 2nd sessions</button>`+
     `<span class="small">Adds a second session (same lecturer, different day) in the earliest free daytime slot; anything that won't fit is listed here.</span></div>`;
+  const r10=der().flags.filter(f=>f.type.startsWith('R10')).length;
+  if(r10)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${r10}</b> stream(s) have more than 3 back-to-back sessions in a day.</span>`+
+    `<button class="btn" onclick="spreadSem()">⚙ Spread out (move extras to free slots)</button>`+
+    `<span class="small">Moves the overflow to a vacant, rule-valid slot on another day (e.g. an empty evening); anything that won't fit is listed.</span></div>`;
   const tbl=(rows,cls)=>{if(!rows.length)return '<p class="small">None.</p>';let t='<div class="wrap"><table><tr><th>Rule</th><th>Detail</th></tr>';
     rows.forEach(f=>t+=`<tr><td class="${cls}"><b>${f.type}</b></td><td>${esc(f.detail)}</td></tr>`);return t+'</table></div>';};
   h+='<h3>Hard rule-breaks (clashes, capacity, placement, overload)</h3>'+tbl(hard,'flag-red');
@@ -552,6 +556,13 @@ async function addRule(){const el=$('newrule');const t=el.value.trim();if(!t)ret
 async function delRule(id){await api('/rules/'+id,{method:'DELETE'});R.rules();}
 async function resetSem(){if(!confirm('Discard ALL edits for Semester '+SEM+' and restore the published timetable?'))return;
   await api(`/${SEM}/reset`,{method:'POST'});await loadData();renderNav();R[CUR]();toast('Semester '+SEM+' restored');}
+async function spreadSem(){
+  if(!confirm('Move overflow sessions so no stream has more than 3 back-to-back sessions in a day?\n\nThis relocates classes (same lecturer/module) to vacant, rule-valid slots on other days and writes to the shared timetable.'))return;
+  toast('Working — spreading sessions…');
+  let r;try{r=await api(`/${SEM}/spread`,{method:'POST'});}catch(e){alert('Something went wrong: '+e.message);return;}
+  await loadData();renderNav();R[CUR]();
+  alert('Spread finished.\n\nMoved: '+r.moved+' sessions to free slots.\nCould not move (no free valid slot): '+r.unresolved+
+    (r.unresolved_sample&&r.unresolved_sample.length?'\n\nExamples that need manual attention:\n• '+r.unresolved_sample.join('\n• '):''));}
 async function autocompleteR1(){
   if(!confirm('Add a second weekly session for every module/stream that currently has only one?\n\nThis writes to the shared timetable (same lecturer, a different day, earliest free daytime slot). Anything that will not fit is left out and listed.'))return;
   toast('Working — placing second sessions…');

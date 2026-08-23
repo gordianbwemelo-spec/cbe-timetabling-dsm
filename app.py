@@ -591,6 +591,96 @@ def autocomplete_r1(sem):
     db().commit()
     return jsonify(ok=True, added=added, unresolved=len(unresolved), unresolved_sample=unresolved[:15])
 
+@app.post("/api/<sem>/spread")
+def spread(sem):
+    """R10 fix: where a stream has more than 3 back-to-back sessions in a day,
+    move the overflow to a vacant, rule-valid slot on another day (e.g. an empty
+    weekday evening). Keeps the same lecturer/module; respects every rule."""
+    S = sess_rows(sem); V = venues(sem); vmap = {v["venue"]: v for v in V}
+    vb, ib, cb = _busy(S, None)
+    dh = {}; eh = {}
+    for x in S:
+        if not x["instr"]: continue
+        d = eh if x["t"] in rules.EVE else dh
+        d[x["instr"]] = d.get(x["instr"], 0) + 2
+
+    def stream_key(x): return (x["prog"], x["nta"], x["stream"])
+    def find_slot(x):
+        nta9 = "NTA9" in (x.get("nta") or "")
+        periods = [17, 19] if nta9 else [7, 9, 11, 13, 15, 17, 19]
+        prem = vmap.get(x["venue"], {}).get("premises", "Main")
+        day_count = {}
+        for y in S:
+            if stream_key(y) == stream_key(x):
+                day_count[y["day"]] = day_count.get(y["day"], 0) + 1
+        for day in sorted(DAYORDER, key=lambda d: day_count.get(d, 0)):
+            if day == x["day"]:
+                continue
+            for t in periods:
+                if (x["prog"], x["nta"], x["stream"], day, t) in cb:
+                    continue
+                if x["instr"] and (x["instr"], day, t) in ib:
+                    continue
+                if x["instr"]:
+                    if t in rules.EVE and eh.get(x["instr"], 0) + 2 > rules.CAP_EVE: continue
+                    if t not in rules.EVE and dh.get(x["instr"], 0) + 2 > rules.CAP_DAY: continue
+                dayts = [y["t"] for y in S if stream_key(y) == stream_key(x) and y["day"] == day]
+                if rules.max_consecutive(dayts + [t]) > rules.MAX_CONSEC:
+                    continue
+                cand = dict(x); cand["day"] = day; cand["t"] = t
+                if (x["venue"], day, t) not in vb and _venue_ok(vmap.get(x["venue"], {}), cand, t):
+                    return day, t, x["venue"]
+                rooms = [v for v in V if v["premises"] == prem and (v["venue"], day, t) not in vb and _venue_ok(v, cand, t)]
+                if rooms:
+                    rooms.sort(key=lambda v: v["capacity"]); return day, t, rooms[0]["venue"]
+        return None
+
+    moved = 0; unresolved = []; skip = set(); guard = 0
+    while guard < 2000:
+        guard += 1
+        groups = {}
+        for x in S:
+            groups.setdefault((x["prog"], x["nta"], x["stream"], x["day"]), []).append(x)
+        target = None
+        for k, rows in groups.items():
+            if k in skip: continue
+            if rules.max_consecutive([r["t"] for r in rows]) > rules.MAX_CONSEC:
+                target = (k, rows); break
+        if not target:
+            break
+        (prog, nta, stream, day), rows = target
+        ts = sorted(r["t"] for r in rows)
+        # try every session in the run, best-splitting first, until one can be placed
+        cands = sorted(rows, key=lambda r: (rules.max_consecutive([t for t in ts if t != r["t"]]), -r["t"]))
+        victim = slot = None
+        for cnd in cands:
+            sl = find_slot(cnd)
+            if sl:
+                victim, slot = cnd, sl; break
+        if not slot:
+            unresolved.append(f"{prog} {rows[0]['mod']} (str {stream}) on {day}")
+            skip.add((prog, nta, stream, day))
+            continue
+        nday, nt, nven = slot
+        vb.discard((victim["venue"], victim["day"], victim["t"]))
+        if victim["instr"]:
+            ib.discard((victim["instr"], victim["day"], victim["t"]))
+            d = eh if victim["t"] in rules.EVE else dh
+            d[victim["instr"]] = d.get(victim["instr"], 0) - 2
+        cb.discard((prog, nta, stream, victim["day"], victim["t"]))
+        victim["day"] = nday; victim["t"] = nt; victim["time"] = rules.time_of(nt); victim["venue"] = nven
+        vb.add((nven, nday, nt))
+        if victim["instr"]:
+            ib.add((victim["instr"], nday, nt))
+            d = eh if nt in rules.EVE else dh
+            d[victim["instr"]] = d.get(victim["instr"], 0) + 2
+        cb.add((prog, nta, stream, nday, nt))
+        db().execute("UPDATE sessions SET day=?, t=?, time=?, venue=? WHERE id=?",
+                     (nday, nt, rules.time_of(nt), nven, victim["id"]))
+        moved += 1
+    db().commit()
+    return jsonify(ok=True, moved=moved, unresolved=len(unresolved), unresolved_sample=unresolved[:15])
+
 # ----------------------------------------------------------------- reference data (Data pages)
 REF = {
     "instructors": {"table": "instructors", "cols": ["name", "dept", "qual", "position", "status", "module_limit", "avail_days", "avail_periods"], "sem": False, "ints": [],
