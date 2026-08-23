@@ -11,7 +11,7 @@ SETTINGS_DEFAULTS = {
     "seat_tolerance": "10", "max_stream_size": "auto", "lab_size": "auto", "classroom_size": "auto",
     "module_cap": "7", "daytime_cap": "32", "evening_cap": "20",
     "soft_modules": "6", "soft_daytime": "28", "soft_evening": "16",
-    "days": "Mon,Tue,Wed,Thu,Fri,Sat",
+    "days": "Mon,Tue,Wed,Thu,Fri,Sat", "academic_year": "2025/2026",
 }
 
 BASE = os.path.dirname(os.path.abspath(__file__))

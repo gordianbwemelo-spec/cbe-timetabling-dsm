@@ -13,6 +13,7 @@ async function loadData(){
   try{D=await api('/'+SEM+'/data');$('status').textContent='● connected';$('status').style.color='#8fe0a5';}
   catch(e){$('status').textContent='● offline';$('status').style.color='#f5b7b1';throw e;}
   if(D.meta&&D.meta.days){DAYS=D.meta.days;}
+  try{const st=(await api('/settings')).settings;if(st&&st.academic_year&&$('acadyear'))$('acadyear').textContent=st.academic_year;}catch(e){}
 }
 function S(){return D.sessions;}
 function VENS(){return D.venues;}
@@ -509,7 +510,7 @@ function uploadCSV(entity,input){const f=input.files[0];if(!f)return;const rd=ne
     if(entity==='instructors'||entity==='venues'){await loadData();renderNav();}};
   rd.readAsText(f);}
 
-const SETLBL={max_stream_size:'Max students per stream — “auto” = largest room',seat_tolerance:'Seat tolerance over room capacity',
+const SETLBL={academic_year:'Academic year (e.g. 2026/2027)',max_stream_size:'Max students per stream — “auto” = largest room',seat_tolerance:'Seat tolerance over room capacity',
   module_cap:'Max modules per instructor (hard cap)',daytime_cap:'Max daytime hours / week',evening_cap:'Max evening hours / week',
   soft_modules:'Soft limit — modules',soft_daytime:'Soft limit — daytime hours',soft_evening:'Soft limit — evening hours',
   lab_size:'Typical lab size (from venues)',classroom_size:'Typical classroom size (from venues)',days:'Teaching days'};
@@ -550,7 +551,8 @@ async function generateTT(){
   alert('Generated Semester '+SEM+':\n\n• Streams created: '+r.stats.streams+'\n• Sessions placed: '+r.stats.sessions_placed+' of '+r.stats.sessions_needed+'\n• Red-flagged (need attention): '+r.stats.sessions_flagged+'\n\nOpen Timetable, Sessions, Streams and Red-flags to review.');
 }
 async function saveSettings(){const s={};document.querySelectorAll('[data-set]').forEach(el=>s[el.dataset.set]=el.value);
-  await api('/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:s})});toast('Parameters saved');}
+  await api('/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:s})});toast('Parameters saved');
+  if(s.academic_year&&$('acadyear'))$('acadyear').textContent=s.academic_year;}
 async function addRule(){const el=$('newrule');const t=el.value.trim();if(!t)return;
   await api('/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});R.rules();}
 async function delRule(id){await api('/rules/'+id,{method:'DELETE'});R.rules();}
