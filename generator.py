@@ -151,6 +151,9 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                                 continue
                             if (prog, nta, stream, day, t) in sbusy:
                                 continue
+                            day_ts = [tt for (p, n, s2, dd, tt) in sbusy if (p, n, s2, dd) == (prog, nta, stream, day)]
+                            if rules.max_consecutive(day_ts + [t]) > rules.MAX_CONSEC:
+                                continue  # would exceed 3 back-to-back sessions for this stream
                             if t in EVE and ieve[instr] + 2 > cap_eve:
                                 continue
                             if t not in EVE and iday[instr] + 2 > cap_day:

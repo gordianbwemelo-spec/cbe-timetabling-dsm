@@ -10,6 +10,16 @@ EVE = {17, 19}
 CAP_MOD, CAP_DAY, CAP_EVE = 7, 32, 20
 SOFT_MOD, SOFT_DAY, SOFT_EVE = 6, 28, 16
 TOL = 10
+MAX_CONSEC = 3   # a stream may have at most 3 back-to-back sessions in a day
+
+def max_consecutive(ts):
+    """Longest run of adjacent 2-hour periods (start times differing by 2)."""
+    ts = sorted(set(int(t) for t in ts))
+    best = run = 1 if ts else 0
+    for i in range(1, len(ts)):
+        run = run + 1 if ts[i] - ts[i - 1] == 2 else 1
+        best = max(best, run)
+    return best
 
 ITPROG = re.compile(r"\bICT\b|\bIT\b|BScIT|\bBIT\b|\bDIT\b|HDIT|TCIT|BTCIT|Information Technology|ITPMGT|MBI|IT-", re.I)
 ITKW = re.compile(r"program|network|database|web|multimedia|graphic|software|data structure|operating system|"
@@ -84,6 +94,13 @@ def validate(sess, sessions, venmap, instructors, exclude_id=None):
             n = len({(x.get("mod"), x.get("code")) for x in rows})
             if n > ml:
                 out.append({"rule": "Limit", "hard": True, "msg": f"{sess['instr']} would exceed their module limit of {ml} ({n} modules)."})
+    # R10: no more than 3 back-to-back (consecutive) sessions for the same stream in a day
+    same_day = [x["t"] for x in others
+                if x.get("prog") == sess.get("prog") and x.get("nta") == sess.get("nta")
+                and x.get("stream") == sess.get("stream") and x["day"] == sess["day"]]
+    if max_consecutive(same_day + [sess["t"]]) > MAX_CONSEC:
+        out.append({"rule": "R10", "hard": True,
+                    "msg": f"{sess.get('prog')} ({sess.get('nta')} str {sess.get('stream')}) would have more than {MAX_CONSEC} back-to-back sessions on {sess['day']}."})
     return out
 
 
@@ -112,6 +129,14 @@ def derive(sessions, venues, instructors, sem):
         cc[(s.get("prog"), s.get("nta"), s.get("stream"), s["day"], s["t"])] += 1
     for k, c in cc.items():
         if c > 1: push("R4_COHORT_CLASH", f"{k[0]} {k[1]} (str {k[2]}) double-booked {k[3]} @{k[4]}:00", "review" if semI else "hard")
+    # R10: no more than 3 consecutive (back-to-back) sessions per stream per day
+    cons = defaultdict(list)
+    for s in sessions:
+        cons[(s.get("prog"), s.get("nta"), s.get("stream"), s["day"])].append(s["t"])
+    for k, ts in cons.items():
+        run = max_consecutive(ts)
+        if run > MAX_CONSEC:
+            push("R10_CONSECUTIVE", f"{k[0]} {k[1]} (str {k[2]}) has {run} back-to-back sessions on {k[3]} (max {MAX_CONSEC})", "hard")
     for s in sessions:
         v = V.get(s["venue"])
         if v and s["occ"] > v["capacity"] + TOL:

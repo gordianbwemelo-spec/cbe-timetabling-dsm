@@ -168,11 +168,8 @@ R.progtt=function(){const all=S();
   const set=new Set(); all.forEach(s=>baseProgs(s.prog).forEach(p=>set.add(p)));
   const progs=[...set].sort();
   if(!window.__ptProg||!progs.includes(window.__ptProg))window.__ptProg=progs[0]||'';
-  const dataLv=[...new Set(all.filter(s=>baseProgs(s.prog).includes(window.__ptProg)).map(s=>s.nta))];
-  const isMasters=/^(MBA|MSc|MIBM|MLG|MPMM|MSCM|PGD)/i.test(window.__ptProg)||(dataLv.length>0&&dataLv.every(x=>ntaLevel(x)===9));
-  const ntaSet=new Set(isMasters?['NTA9']:NTAOPTS); dataLv.forEach(l=>ntaSet.add(l));
-  const ntas=[...ntaSet].sort((a,b)=>ntaLevel(a)-ntaLevel(b));
-  if(!window.__ptNta||!ntas.includes(window.__ptNta))window.__ptNta=dataLv.sort((a,b)=>ntaLevel(a)-ntaLevel(b))[0]||ntas[0]||'';
+  const ntas=[...new Set(all.filter(s=>baseProgs(s.prog).includes(window.__ptProg)).map(s=>s.nta))].sort((a,b)=>ntaLevel(a)-ntaLevel(b));
+  if(!window.__ptNta||!ntas.includes(window.__ptNta))window.__ptNta=ntas[0]||'';
   const strms=['All streams',...[...new Set(all.filter(s=>baseProgs(s.prog).includes(window.__ptProg)&&s.nta===window.__ptNta).map(s=>s.stream).filter(x=>x))].sort()];
   if(!window.__ptStream||!strms.includes(window.__ptStream))window.__ptStream='All streams';
   let h=`<h2>Programme Timetable — Semester ${SEM}</h2>`;
@@ -522,6 +519,7 @@ const BUILTIN_RULES=[
  'R7 — Laboratories/smart rooms only for hands-on IT modules.',
  'R8 — Master’s (NTA9) only in the evening or Saturday, in BTA/BTB/BTC.',
  'R9 — Appropriate allocation: Master’s to PhD holders; IT to ICT staff; modules only to capable staff.',
+ 'R10 — No stream has more than 3 back-to-back (consecutive) sessions in a day.',
  'L1–L3 — Load caps: max modules, daytime hours and evening hours per instructor.'];
 R.rules=async function(){const r=await api('/settings');const s=r.settings;
   let vs={largest_hall:0,typical_classroom:0,typical_lab:0}; try{vs=await api(`/${SEM}/venuesizes`);}catch(e){}
