@@ -2,6 +2,7 @@
 const STARTS=[7,9,11,13,15,17,19], EVE=new Set([17,19]);
 let DAYS=["Mon","Tue","Wed","Thu","Fri","Sat"], PERIODS=STARTS.map(t=>pad(t)+":00-"+pad(t+2)+":00");
 let SEM="II", D=null, CUR="overview";
+let ADMIN=true, ADMIN_PIN="";
 function pad(n){return('0'+n).slice(-2);}
 function timeOf(t){return pad(t)+":00-"+pad(t+2)+":00";}
 const esc=s=>(''+(s==null?'':s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -13,8 +14,18 @@ async function loadData(){
   try{D=await api('/'+SEM+'/data');$('status').textContent='● connected';$('status').style.color='#8fe0a5';}
   catch(e){$('status').textContent='● offline';$('status').style.color='#f5b7b1';throw e;}
   if(D.meta&&D.meta.days){DAYS=D.meta.days;}
-  try{const st=(await api('/settings')).settings;if(st&&st.academic_year&&$('acadyear'))$('acadyear').textContent=st.academic_year;}catch(e){}
+  try{const st=(await api('/settings')).settings;if(st){if(st.academic_year&&$('acadyear'))$('acadyear').textContent=st.academic_year;
+    ADMIN_PIN=st.admin_pin||'';ADMIN=(ADMIN_PIN==='')||(localStorage.getItem('cbe_admin')===ADMIN_PIN);updateAdminBtn();}}catch(e){}
 }
+function updateAdminBtn(){const b=$('adminbtn');if(!b)return;
+  if(!ADMIN_PIN){b.style.display='none';return;}
+  b.style.display='';b.textContent=ADMIN?'🔓 Admin (log out)':'🔒 Admin log in';}
+function adminToggle(){
+  if(ADMIN){localStorage.removeItem('cbe_admin');ADMIN=false;toast('Logged out — view only');}
+  else{const p=prompt('Enter the Admin PIN to edit data and rules:');if(p==null)return;
+    if(p===ADMIN_PIN){localStorage.setItem('cbe_admin',p);ADMIN=true;toast('Admin unlocked');}else{alert('Wrong PIN.');return;}}
+  updateAdminBtn();renderNav();
+  if(!ADMIN&&(CUR==='data'||CUR==='rules'||CUR==='sessions'))go('overview');else R[CUR]();}
 function S(){return D.sessions;}
 function VENS(){return D.venues;}
 function venMap(){const m={};VENS().forEach(v=>m[v.venue]=v);return m;}
@@ -25,7 +36,8 @@ function renderNav(){const m=der().metrics;
   const items=[['overview','Overview'],['timetable','Timetable'],['sessions','Sessions'],['instr','Instructor TT'],
    ['progtt','Programme TT'],
    ['venue','Venue Dashboard'],['workload','Workload'],['capacity','Venue Capacity'],['catalogue','Catalogue'],
-   ['streams','Streams'],['flags','Red-flags'],['reports','Reports'],['rules','Rules'],['data','Data']];
+   ['streams','Streams'],['flags','Red-flags'],['reports','Reports'],['rules','Rules'],['data','Data']]
+   .filter(it=>ADMIN||!['data','rules','sessions'].includes(it[0]));  // editing surfaces are admin-only when a PIN is set
   $('nav').innerHTML=items.map(it=>`<button class="${it[0]===CUR?'active':''}" onclick="go('${it[0]}')">${it[1]}${it[0]==='flags'&&m.hard?`<span class="badge">${m.hard}</span>`:''}</button>`).join('');
 }
 function go(k){CUR=k;document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));$('t-'+k).classList.add('active');renderNav();R[k]();}
@@ -236,11 +248,11 @@ R.flags=function(){const m=der().metrics;const hard=der().flags.filter(f=>f.seve
     `<span class="small">After adding the lecturer (and their teaching capability), go to Rules → Generate again.</span></div>`;
   const r1=der().flags.filter(f=>f.type.startsWith('R1')).length;
   if(r1)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${r1}</b> module/stream blocks don't yet have their two weekly sessions.</span>`+
-    `<button class="btn" onclick="autocompleteR1()">⚙ Auto-complete missing 2nd sessions</button>`+
+    (ADMIN?`<button class="btn" onclick="autocompleteR1()">⚙ Auto-complete missing 2nd sessions</button>`:'')+
     `<span class="small">Adds a second session (same lecturer, different day) in the earliest free daytime slot; anything that won't fit is listed here.</span></div>`;
   const r10=der().flags.filter(f=>f.type.startsWith('R10')).length;
   if(r10)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${r10}</b> stream(s) have more than 3 back-to-back sessions in a day.</span>`+
-    `<button class="btn" onclick="spreadSem()">⚙ Spread out (move extras to free slots)</button>`+
+    (ADMIN?`<button class="btn" onclick="spreadSem()">⚙ Spread out (move extras to free slots)</button>`:'')+
     `<span class="small">Moves the overflow to a vacant, rule-valid slot on another day (e.g. an empty evening); anything that won't fit is listed.</span></div>`;
   const tbl=(rows,cls)=>{if(!rows.length)return '<p class="small">None.</p>';let t='<div class="wrap"><table><tr><th>Rule</th><th>Detail</th></tr>';
     rows.forEach(f=>t+=`<tr><td class="${cls}"><b>${f.type}</b></td><td>${esc(f.detail)}</td></tr>`);return t+'</table></div>';};
@@ -251,7 +263,7 @@ R.flags=function(){const m=der().metrics;const hard=der().flags.filter(f=>f.seve
 // ---------- Data management ----------
 const REFC={
   instructors:{cols:['name','dept','qual','position','status','module_limit','avail_days','avail_periods'],sem:false,labels:['Name','Department','Qualification','Position','Status','Module limit','Available days','Available periods'],num:[]},
-  teaching:{cols:['instructor','code','module'],sem:false,labels:['Instructor','Module code','Module'],num:[]},
+  teaching:{cols:['instructor','code','module','nta'],sem:false,labels:['Instructor','Module code','Module','NTA level (blank = any)'],num:[]},
   venues:{cols:['venue','capacity','premises','type'],sem:true,labels:['Venue','Capacity','Premises','Type'],num:['capacity']},
   curriculum:{cols:['programme','nta','code','module','credit','cls'],sem:true,labels:['Programme','NTA','Code','Module','Credit','Class'],num:[]},
   enrolment:{cols:['programme','department','nta','year','female','male','total'],sem:false,labels:['Programme','Department','NTA','Year','Female','Male','Total'],num:['total']},
@@ -272,7 +284,7 @@ R.catalogue=async function(){const r=await api(`/${SEM}/catalogue`); window.__ca
   let h=`<h2>Module Catalogue — Semester ${SEM} <span class="small">(${r.rows.length} modules · ${cross} cross-cutting)</span></h2>`;
   h+='<div class="note">Each module shows the <b>programmes</b> and <b>NTA levels</b> in which it is taught; modules shared by more than one programme are tagged <b>cross-cutting</b>. Click <b>Edit</b> to correct a name or code everywhere it appears.</div>';
   h+='<div class="controls"><input type="text" id="dsearch" placeholder="Search module, code or programme…" style="min-width:280px"></div><div class="wrap"><table id="dtbl"><tr><th>Code</th><th>Module</th><th>Credit</th><th>Programmes</th><th>NTA levels</th><th></th></tr>';
-  h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}${x.cross?' <span class="pill amber">cross-cutting</span>':''}</td><td>${esc(x.credit)}</td><td>${esc(x.programmes)}</td><td>${esc(x.ntas)}</td><td><button class="btn small" data-i="${i}">Edit</button></td></tr>`).join('');
+  h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}${x.cross?' <span class="pill amber">cross-cutting</span>':''}</td><td>${esc(x.credit)}</td><td>${esc(x.programmes)}</td><td>${esc(x.ntas)}</td><td>${ADMIN?`<button class="btn small" data-i="${i}">Edit</button>`:''}</td></tr>`).join('');
   $('t-catalogue').innerHTML=h+'</table></div>'; wireSearch();
   document.querySelectorAll('#t-catalogue button[data-i]').forEach(b=>{b.onclick=()=>{const x=window.__cat[+b.dataset.i];moduleModal(x.code,x.module);};});};
 const NTAOPTS=['NTA4','NTA5','NTA6','NTA7 Y1','NTA7 Y2','NTA8','NTA9'];
@@ -351,14 +363,18 @@ async function renderTeaching(){
      '<b>Lecturer:</b> <select id="tinstr">'+(names.length?names.map(n=>`<option ${n===window.__tInstr?'selected':''}>${esc(n)}</option>`).join(''):'<option>(none in this department)</option>')+'</select>'+
      '<button class="btn" onclick="lecturerModal(null)">+ New lecturer</button>'+
      '<a class="btn sec" href="/api/ref/teaching/template.csv">Download template</a>'+
-     '<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV(\'teaching\',this)"></label></div>';
+     '<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV(\'teaching\',this)"></label>'+
+     '<button class="btn sec" onclick="copyHodLink(\'teaching\')">🔗 Copy HoD link</button></div>';
   if(window.__tInstr) h+=`<div class="small" style="margin:2px 0 8px"><b>${esc(cur.dept||'—')}</b> · ${esc(cur.qual||'qualification not set')}${cur.position?' · '+esc(cur.position):''} <button class="btn small sec" onclick="lecturerModal(${cur._id})">Edit lecturer details</button></div>`;
   h+='<div class="controls" style="background:#eef3fb;padding:10px 12px;border-radius:8px"><b>Add a module '+esc(window.__tInstr||'')+' can teach:</b> '+
-     '<input type="text" id="tmod" list="tmodlist" placeholder="Type or pick a module…" style="min-width:300px">'+
+     '<input type="text" id="tmod" list="tmodlist" placeholder="Type or pick a module…" style="min-width:280px">'+
      '<datalist id="tmodlist">'+mods.rows.map(m=>`<option value="${esc(m.module)}">${esc(m.code)}</option>`).join('')+'</datalist>'+
-     '<button class="btn" onclick="teachAdd()">+ Add module</button></div>';
-  h+=`<h3>${esc(window.__tInstr||'(no lecturer selected)')} — ${rows.length} module(s)</h3><div class="wrap"><table><tr><th>Module code</th><th>Module</th><th></th></tr>`;
-  h+=rows.map(r=>`<tr><td>${esc(r.code)}</td><td>${esc(r.module)}</td><td><button class="btn small danger" onclick="teachDel(${r._id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="3" class="small">No modules yet — add some above.</td></tr>';
+     '<button class="btn" onclick="teachAdd()">+ Add module</button>'+
+     '<div style="flex-basis:100%;height:0"></div><span class="small">Allowed at NTA level(s):</span> '+
+     NTAOPTS.map(n=>`<label class="small" style="margin-right:10px;white-space:nowrap"><input type="checkbox" class="tntachk" value="${n}"> ${n}</label>`).join('')+
+     '<span class="small" style="color:#777">(tick none = any level)</span></div>';
+  h+=`<h3>${esc(window.__tInstr||'(no lecturer selected)')} — ${rows.length} module(s)</h3><div class="wrap"><table><tr><th>Module code</th><th>Module</th><th>NTA level</th><th></th></tr>`;
+  h+=rows.map(r=>`<tr><td>${esc(r.code)}</td><td>${esc(r.module)}</td><td>${esc(r.nta||'any')}</td><td><button class="btn small danger" onclick="teachDel(${r._id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="4" class="small">No modules yet — add some above.</td></tr>';
   p.innerHTML=h+'</table></div>';
   $('tdept').onchange=()=>{window.__tDept=$('tdept').value;window.__tInstr='';renderTeaching();};
   $('tinstr').onchange=()=>{window.__tInstr=$('tinstr').value;renderTeaching();};
@@ -366,8 +382,12 @@ async function renderTeaching(){
 async function teachAdd(){const el=$('tmod');const mod=el.value.trim();if(!mod){el.focus();return;}
   if(!window.__tInstr){alert('Add or pick a lecturer first.');return;}
   const code=(window.__modByName&&window.__modByName[mod])||'';
-  await api('/ref/teaching',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructor:window.__tInstr,code,module:mod,sem:SEM})});
-  toast('Added module for '+window.__tInstr);renderTeaching();}
+  const lvls=[...document.querySelectorAll('.tntachk:checked')].map(c=>c.value);
+  const list=lvls.length?lvls:[''];   // no tick = allowed at any level
+  for(const nta of list){
+    await api('/ref/teaching',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructor:window.__tInstr,code,module:mod,nta,sem:SEM})});
+  }
+  toast('Added module for '+window.__tInstr+(lvls.length?' ('+lvls.length+' level'+(lvls.length>1?'s':'')+')':''));renderTeaching();}
 async function teachDel(id){await api('/ref/teaching/'+id,{method:'DELETE'});toast('Removed');renderTeaching();}
 const LDAYS=['Mon','Tue','Wed','Thu','Fri','Sat'], LPERIODS=[7,9,11,13,15,17,19];
 async function lecturerModal(rid,preset){
@@ -418,6 +438,7 @@ async function renderEnrolment(){
      `<button class="btn sec" onclick="entityEdit(null)">+ Add single row</button>`+
      `<a class="btn sec" href="/api/ref/enrolment/template.csv">Download template</a>`+
      `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('enrolment',this)"></label>`+
+     `<button class="btn sec" onclick="copyHodLink('enrolment')">🔗 Copy HoD link</button>`+
      `<input type="text" id="esearch" placeholder="Search programme…" style="min-width:220px"><span class="small">${Object.keys(byProg).length} programmes</span></div>`;
   h+='<div class="wrap"><table id="etbl">';
   Object.keys(byProg).sort().forEach(prog=>{
@@ -510,7 +531,7 @@ function uploadCSV(entity,input){const f=input.files[0];if(!f)return;const rd=ne
     if(entity==='instructors'||entity==='venues'){await loadData();renderNav();}};
   rd.readAsText(f);}
 
-const SETLBL={academic_year:'Academic year (e.g. 2026/2027)',max_stream_size:'Max students per stream — “auto” = largest room',seat_tolerance:'Seat tolerance over room capacity',
+const SETLBL={academic_year:'Academic year (e.g. 2026/2027)',admin_pin:'Admin PIN (blank = anyone can edit; set it to lock editing to admins)',max_stream_size:'Max students per stream — “auto” = largest room',seat_tolerance:'Seat tolerance over room capacity',
   module_cap:'Max modules per instructor (hard cap)',daytime_cap:'Max daytime hours / week',evening_cap:'Max evening hours / week',
   soft_modules:'Soft limit — modules',soft_daytime:'Soft limit — daytime hours',soft_evening:'Soft limit — evening hours',
   lab_size:'Typical lab size (from venues)',classroom_size:'Typical classroom size (from venues)',days:'Teaching days'};
@@ -552,7 +573,8 @@ async function generateTT(){
 }
 async function saveSettings(){const s={};document.querySelectorAll('[data-set]').forEach(el=>s[el.dataset.set]=el.value);
   await api('/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:s})});toast('Parameters saved');
-  if(s.academic_year&&$('acadyear'))$('acadyear').textContent=s.academic_year;}
+  if(s.academic_year&&$('acadyear'))$('acadyear').textContent=s.academic_year;
+  if('admin_pin' in s){ADMIN_PIN=s.admin_pin||'';if(ADMIN&&ADMIN_PIN)localStorage.setItem('cbe_admin',ADMIN_PIN);updateAdminBtn();renderNav();}}
 async function addRule(){const el=$('newrule');const t=el.value.trim();if(!t)return;
   await api('/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});R.rules();}
 async function delRule(id){await api('/rules/'+id,{method:'DELETE'});R.rules();}
@@ -573,5 +595,47 @@ async function autocompleteR1(){
   alert('Auto-complete finished.\n\nAdded: '+r.added+' new sessions.\nCould not place (rooms or lecturer already full): '+r.unresolved+
     (r.unresolved_sample&&r.unresolved_sample.length?'\n\nExamples that need manual attention:\n• '+r.unresolved_sample.join('\n• '):''));}
 
+// ---- HoD submission page (opened via a shared link, e.g. ...?hod=teaching) ----
+const HOD={
+  teaching:{title:'Teaching Capability — lecturers and the modules they can teach',
+    intro:'List every lecturer in your department and each module they are able to teach. Add an <b>NTA level</b> in the last column only where a lecturer may teach that module <b>only</b> at a particular level; leave it blank if any level is fine.',
+    entity:'teaching'},
+  enrolment:{title:'Enrolment — number of students per programme and NTA level',
+    intro:'Fill in, for each of your programmes and NTA levels, the number of Female, Male and Total students. This is used to size the streams.',
+    entity:'enrolment'},
+};
+function renderHodPage(key){
+  const cfg=HOD[key]; document.getElementById('nav').style.display='none';
+  const tog=document.querySelector('.semtoggle'); if(tog)tog.style.display='none';
+  const sub=document.querySelector('header .sub'); if(sub)sub.textContent='Head of Department — data submission';
+  document.querySelector('main').innerHTML=
+    '<div style="max-width:680px;margin:26px auto;background:#fff;border:1px solid #dbe3f0;border-radius:12px;padding:26px 30px">'+
+    '<h2 style="margin-top:0;color:var(--navy)">'+esc(cfg.title)+'</h2>'+
+    '<div class="note">Dear Head of Department, please do these three steps:</div>'+
+    '<ol style="line-height:1.9;font-size:14px">'+
+    '<li>Click <b>Download template</b> and open it in Excel.</li>'+
+    '<li>Fill in your department\'s rows. '+cfg.intro+'</li>'+
+    '<li>Save the file, then click <b>Upload filled file</b> and choose it.</li></ol>'+
+    '<div class="controls" style="margin-top:8px">'+
+    '<a class="btn" href="/api/ref/'+cfg.entity+'/template.csv">⬇ Download template</a>'+
+    '<label class="btn primary" style="cursor:pointer">⬆ Upload filled file<input type="file" accept=".csv" style="display:none" onchange="hodUpload(\''+cfg.entity+'\',this)"></label></div>'+
+    '<div id="hodmsg" style="margin-top:14px;font-size:14px"></div>'+
+    '<div class="small" style="margin-top:18px;color:#777">Your upload is <b>added</b> to the central data for the campus. You can upload again anytime — duplicate rows are ignored. Thank you.</div>'+
+    '</div>';
+  document.getElementById('status').textContent='● ready';
+}
+function copyHodLink(entity){const url=location.origin+'/?hod='+entity;
+  const label=entity==='teaching'?'Teaching capability':'Enrolment';
+  (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(url):Promise.reject()).then(
+    ()=>{toast('Link copied — share it with your HoDs');alert('HoD link for '+label+' copied to clipboard:\n\n'+url+'\n\nSend this to your Heads of Department. When they open it they get a simple page to download the template, fill it and upload — no need to learn the whole system.');},
+    ()=>{prompt('Copy this HoD link for '+label+' and share it with your Heads of Department:',url);});}
+async function hodUpload(entity,input){const f=input.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=async()=>{let r;try{r=await api('/ref/'+entity+'/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csv:rd.result,mode:'append',sem:'II'})});}catch(e){$('hodmsg').innerHTML='<span style="color:#c0392b">Upload failed: '+esc(e.message)+'. Please check the file and try again.</span>';return;}
+    input.value='';$('hodmsg').innerHTML='<span style="color:#1e8449">✔ Thank you — '+r.imported+' row(s) received and saved.</span>';};
+  rd.readAsText(f);}
 // init
-(async()=>{try{await setSem('II');}catch(e){$('status').textContent='● cannot reach server';document.querySelector('main').innerHTML='<div class="note warn">Could not connect to the server. Make sure the app is running and reload this page.</div>';}})();
+(function(){
+  const hod=new URLSearchParams(location.search).get('hod');
+  if(hod&&HOD[hod]){renderHodPage(hod);return;}
+  (async()=>{try{await setSem('II');}catch(e){$('status').textContent='● cannot reach server';document.querySelector('main').innerHTML='<div class="note warn">Could not connect to the server. Make sure the app is running and reload this page.</div>';}})();
+})();

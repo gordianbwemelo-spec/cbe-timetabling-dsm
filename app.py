@@ -11,7 +11,7 @@ SETTINGS_DEFAULTS = {
     "seat_tolerance": "10", "max_stream_size": "auto", "lab_size": "auto", "classroom_size": "auto",
     "module_cap": "7", "daytime_cap": "32", "evening_cap": "20",
     "soft_modules": "6", "soft_daytime": "28", "soft_evening": "16",
-    "days": "Mon,Tue,Wed,Thu,Fri,Sat", "academic_year": "2025/2026",
+    "days": "Mon,Tue,Wed,Thu,Fri,Sat", "academic_year": "2025/2026", "admin_pin": "",
 }
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -82,6 +82,8 @@ def init_db():
     ecols = [r[1] for r in con.execute("PRAGMA table_info(enrolment)")]
     if "department" not in ecols:
         con.execute("ALTER TABLE enrolment ADD COLUMN department TEXT")
+    if "nta" not in [r[1] for r in con.execute("PRAGMA table_info(teaching)")]:
+        con.execute("ALTER TABLE teaching ADD COLUMN nta TEXT")
     con.commit()
     n = con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
     if n == 0:
@@ -685,7 +687,7 @@ def spread(sem):
 REF = {
     "instructors": {"table": "instructors", "cols": ["name", "dept", "qual", "position", "status", "module_limit", "avail_days", "avail_periods"], "sem": False, "ints": [],
                     "title": "Instructors & qualifications"},
-    "teaching":    {"table": "teaching", "cols": ["instructor", "code", "module"], "sem": False, "ints": [],
+    "teaching":    {"table": "teaching", "cols": ["instructor", "code", "module", "nta"], "sem": False, "ints": [],
                     "title": "Modules each instructor can teach"},
     "venues":      {"table": "venues", "cols": ["venue", "capacity", "premises", "type"], "sem": True, "ints": ["capacity"],
                     "title": "Venue names & capacity"},
@@ -783,6 +785,12 @@ def ref_import(entity):
         verb = "INSERT OR REPLACE" if entity == "instructors" else "INSERT"
         db().execute(f"{verb} INTO {cfg['table']}({','.join(allc)}) VALUES({','.join('?'*len(allc))})", vals)
         count += 1
+    # after an append (e.g. HoD submissions), drop any exact-duplicate rows so
+    # repeated uploads don't pile up.
+    if entity == "teaching":
+        db().execute("DELETE FROM teaching WHERE rowid NOT IN (SELECT MIN(rowid) FROM teaching GROUP BY IFNULL(instructor,''),IFNULL(code,''),IFNULL(module,''),IFNULL(nta,''))")
+    elif entity == "enrolment":
+        db().execute("DELETE FROM enrolment WHERE rowid NOT IN (SELECT MIN(rowid) FROM enrolment GROUP BY IFNULL(programme,''),IFNULL(nta,''),IFNULL(year,''))")
     db().commit(); return jsonify(ok=True, imported=count)
 
 @app.get("/api/modules")

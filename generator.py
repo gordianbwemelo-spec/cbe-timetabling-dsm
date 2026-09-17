@@ -37,15 +37,20 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
 
     V = list(venues)
     # teaching capability lookup (by module name and by code)
-    can = defaultdict(set)
+    def _lvl(x):
+        m = re.search(r"(\d)", x or "")
+        return m.group(1) if m else None
+    # capability: module/code -> list of (instructor, level-they-may-teach or None=any)
+    can = defaultdict(list)
     for t in teaching:
         n = t.get("instructor")
         if not n:
             continue
+        tl = _lvl(t.get("nta"))
         if t.get("module"):
-            can[("m", t["module"].strip().lower())].add(n)
+            can[("m", t["module"].strip().lower())].append((n, tl))
         if t.get("code"):
-            can[("c", t["code"].strip().lower())].add(n)
+            can[("c", t["code"].strip().lower())].append((n, tl))
     enr = {}
     for e in enrolment:
         try:
@@ -92,9 +97,15 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
         return days, pers
 
     def eligible(nta, mod, code):
-        s = set(can.get(("m", (mod or "").strip().lower()), set())) | set(can.get(("c", (code or "").strip().lower()), set()))
+        slvl = _lvl(nta)
+        cands = list(can.get(("m", (mod or "").strip().lower()), [])) + list(can.get(("c", (code or "").strip().lower()), []))
         out = []
-        for n in s:
+        for n, tl in cands:
+            if n in out:
+                continue
+            # NTA legitimacy: if the capability names a level, it must match the session's level
+            if tl and slvl and tl != slvl:
+                continue
             inf = instructors.get(n, {})
             if (inf.get("status") or "On duty") == "Study leave":
                 continue  # not on duty — cannot be allocated
