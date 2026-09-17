@@ -2,7 +2,7 @@
 const STARTS=[7,9,11,13,15,17,19], EVE=new Set([17,19]);
 let DAYS=["Mon","Tue","Wed","Thu","Fri","Sat"], PERIODS=STARTS.map(t=>pad(t)+":00-"+pad(t+2)+":00");
 let SEM="II", D=null, CUR="overview";
-let ADMIN=true, ADMIN_PIN="";
+let ADMIN=true, ADMIN_PIN="", HODMODE="";
 function pad(n){return('0'+n).slice(-2);}
 function timeOf(t){return pad(t)+":00-"+pad(t+2)+":00";}
 const esc=s=>(''+(s==null?'':s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -18,7 +18,7 @@ async function loadData(){
     ADMIN_PIN=st.admin_pin||'';ADMIN=(ADMIN_PIN==='')||(localStorage.getItem('cbe_admin')===ADMIN_PIN);updateAdminBtn();}}catch(e){}
 }
 function updateAdminBtn(){const b=$('adminbtn');if(!b)return;
-  if(!ADMIN_PIN){b.style.display='none';return;}
+  if(HODMODE||!ADMIN_PIN){b.style.display='none';return;}
   b.style.display='';b.textContent=ADMIN?'🔓 Admin (log out)':'🔒 Admin log in';}
 function adminToggle(){
   if(ADMIN){localStorage.removeItem('cbe_admin');ADMIN=false;toast('Logged out — view only');}
@@ -364,7 +364,7 @@ async function renderTeaching(){
      '<button class="btn" onclick="lecturerModal(null)">+ New lecturer</button>'+
      '<a class="btn sec" href="/api/ref/teaching/template.csv">Download template</a>'+
      '<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV(\'teaching\',this)"></label>'+
-     '<button class="btn sec" onclick="copyHodLink(\'teaching\')">🔗 Copy HoD link</button></div>';
+     (HODMODE?'':'<button class="btn sec" onclick="copyHodLink(\'teaching\')">🔗 Copy HoD link</button>')+'</div>';
   if(window.__tInstr) h+=`<div class="small" style="margin:2px 0 8px"><b>${esc(cur.dept||'—')}</b> · ${esc(cur.qual||'qualification not set')}${cur.position?' · '+esc(cur.position):''} <button class="btn small sec" onclick="lecturerModal(${cur._id})">Edit lecturer details</button></div>`;
   h+='<div class="controls" style="background:#eef3fb;padding:10px 12px;border-radius:8px"><b>Add a module '+esc(window.__tInstr||'')+' can teach:</b> '+
      '<input type="text" id="tmod" list="tmodlist" placeholder="Type or pick a module…" style="min-width:280px">'+
@@ -438,7 +438,7 @@ async function renderEnrolment(){
      `<button class="btn sec" onclick="entityEdit(null)">+ Add single row</button>`+
      `<a class="btn sec" href="/api/ref/enrolment/template.csv">Download template</a>`+
      `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('enrolment',this)"></label>`+
-     `<button class="btn sec" onclick="copyHodLink('enrolment')">🔗 Copy HoD link</button>`+
+     (HODMODE?'':`<button class="btn sec" onclick="copyHodLink('enrolment')">🔗 Copy HoD link</button>`)+
      `<input type="text" id="esearch" placeholder="Search programme…" style="min-width:220px"><span class="small">${Object.keys(byProg).length} programmes</span></div>`;
   h+='<div class="wrap"><table id="etbl">';
   Object.keys(byProg).sort().forEach(prog=>{
@@ -598,41 +598,31 @@ async function autocompleteR1(){
 // ---- HoD submission page (opened via a shared link, e.g. ...?hod=teaching) ----
 const HOD={
   teaching:{title:'Teaching Capability — lecturers and the modules they can teach',
-    intro:'List every lecturer in your department and each module they are able to teach. Add an <b>NTA level</b> in the last column only where a lecturer may teach that module <b>only</b> at a particular level; leave it blank if any level is fine.',
-    entity:'teaching'},
-  enrolment:{title:'Enrolment — number of students per programme and NTA level',
-    intro:'Fill in, for each of your programmes and NTA levels, the number of Female, Male and Total students. This is used to size the streams.',
-    entity:'enrolment'},
+    sub:'Choose your department, add each lecturer, and tick every module they can teach with the NTA level(s) they are cleared for (tick none = any level). Changes save immediately.'},
+  enrolment:{title:'Enrolment — students per programme and NTA level',
+    sub:'Fill in the Female, Male and Total students for each programme and NTA level. Use “+ Add programme” if a programme is missing. Changes save immediately.'},
 };
-function renderHodPage(key){
-  const cfg=HOD[key]; document.getElementById('nav').style.display='none';
+async function renderHodPage(key){
+  HODMODE=key;
+  document.getElementById('nav').style.display='none';
   const tog=document.querySelector('.semtoggle'); if(tog)tog.style.display='none';
-  const sub=document.querySelector('header .sub'); if(sub)sub.textContent='Head of Department — data submission';
+  const ab=document.getElementById('adminbtn'); if(ab)ab.style.display='none';
+  const sub=document.querySelector('header .sub'); if(sub)sub.textContent='Head of Department — '+(key==='teaching'?'Teaching capability':'Enrolment');
+  try{await loadData();}catch(e){}
+  DATASUB=key;
   document.querySelector('main').innerHTML=
-    '<div style="max-width:680px;margin:26px auto;background:#fff;border:1px solid #dbe3f0;border-radius:12px;padding:26px 30px">'+
-    '<h2 style="margin-top:0;color:var(--navy)">'+esc(cfg.title)+'</h2>'+
-    '<div class="note">Dear Head of Department, please do these three steps:</div>'+
-    '<ol style="line-height:1.9;font-size:14px">'+
-    '<li>Click <b>Download template</b> and open it in Excel.</li>'+
-    '<li>Fill in your department\'s rows. '+cfg.intro+'</li>'+
-    '<li>Save the file, then click <b>Upload filled file</b> and choose it.</li></ol>'+
-    '<div class="controls" style="margin-top:8px">'+
-    '<a class="btn" href="/api/ref/'+cfg.entity+'/template.csv">⬇ Download template</a>'+
-    '<label class="btn primary" style="cursor:pointer">⬆ Upload filled file<input type="file" accept=".csv" style="display:none" onchange="hodUpload(\''+cfg.entity+'\',this)"></label></div>'+
-    '<div id="hodmsg" style="margin-top:14px;font-size:14px"></div>'+
-    '<div class="small" style="margin-top:18px;color:#777">Your upload is <b>added</b> to the central data for the campus. You can upload again anytime — duplicate rows are ignored. Thank you.</div>'+
-    '</div>';
+    '<div style="max-width:1080px;margin:14px auto;padding:0 12px">'+
+    '<h2 style="color:var(--navy)">'+esc(HOD[key].title)+'</h2>'+
+    '<div class="note">Dear Head of Department — '+esc(HOD[key].sub)+'</div>'+
+    '<div id="datapanel"><div class="small">Loading…</div></div></div>';
+  if(key==='teaching')renderTeaching(); else renderEnrolment();
   document.getElementById('status').textContent='● ready';
 }
 function copyHodLink(entity){const url=location.origin+'/?hod='+entity;
   const label=entity==='teaching'?'Teaching capability':'Enrolment';
   (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(url):Promise.reject()).then(
-    ()=>{toast('Link copied — share it with your HoDs');alert('HoD link for '+label+' copied to clipboard:\n\n'+url+'\n\nSend this to your Heads of Department. When they open it they get a simple page to download the template, fill it and upload — no need to learn the whole system.');},
+    ()=>{toast('Link copied — share it with your HoDs');alert('HoD link for '+label+' copied to clipboard:\n\n'+url+'\n\nSend this to your Heads of Department. When they open it they can edit their '+label.toLowerCase()+' directly in the system — no template, no upload.');},
     ()=>{prompt('Copy this HoD link for '+label+' and share it with your Heads of Department:',url);});}
-async function hodUpload(entity,input){const f=input.files[0];if(!f)return;const rd=new FileReader();
-  rd.onload=async()=>{let r;try{r=await api('/ref/'+entity+'/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({csv:rd.result,mode:'append',sem:'II'})});}catch(e){$('hodmsg').innerHTML='<span style="color:#c0392b">Upload failed: '+esc(e.message)+'. Please check the file and try again.</span>';return;}
-    input.value='';$('hodmsg').innerHTML='<span style="color:#1e8449">✔ Thank you — '+r.imported+' row(s) received and saved.</span>';};
-  rd.readAsText(f);}
 // init
 (function(){
   const hod=new URLSearchParams(location.search).get('hod');
