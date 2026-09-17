@@ -100,12 +100,21 @@ def init_db():
     db_ver = int(vrow[0]) if vrow and str(vrow[0]).isdigit() else 0
     stale = con.execute("SELECT COUNT(*) FROM sessions WHERE semester='I' AND "
                         "(nta IN ('TFC','TNC') OR IFNULL(nta,'')='')").fetchone()[0]
-    if stale or seed_ver > db_ver:
-        seed(con, only_sem="I")
-        con.execute("DELETE FROM curriculum WHERE semester='I'")
+    # combined NTA labels (e.g. 'NTA4/5', 'NTA7/8') are invalid — the only valid
+    # levels are NTA4, NTA5, NTA6, NTA7 Y1, NTA7 Y2, NTA8, NTA9. If any live
+    # session still carries a '/' in its level, force a full reload from seed.
+    combined = con.execute("SELECT COUNT(*) FROM sessions WHERE nta LIKE '%/%'").fetchone()[0]
+    if stale or combined or seed_ver > db_ver:
+        # a version bump (or any combined label) reloads BOTH semesters from the
+        # corrected seed; the older placeholder-only heal touches Semester I alone.
+        sems = ["I", "II"] if (seed_ver > db_ver or combined) else ["I"]
+        for s in sems:
+            seed(con, only_sem=s)
+        ph = ",".join("?" for _ in sems)
+        con.execute(f"DELETE FROM curriculum WHERE semester IN ({ph})", sems)
         seen = set()
         for sem, prog, nta, code, mod in con.execute(
-                "SELECT DISTINCT semester, prog, nta, code, mod FROM sessions WHERE semester='I'"):
+                f"SELECT DISTINCT semester, prog, nta, code, mod FROM sessions WHERE semester IN ({ph})", sems):
             for bp in base_programmes(prog):
                 key = (sem, bp, nta or "", code or "", mod or "")
                 if key in seen:
