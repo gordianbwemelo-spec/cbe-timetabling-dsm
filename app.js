@@ -507,6 +507,7 @@ async function renderEnrolment(){
   let h='<div class="note">Enrolment is grouped <b>per programme, then per NTA level</b>. Enter the number of <b>Full-time (day)</b> students and, separately, any <b>Evening/weekend</b> students. Evening/weekend students are scheduled only 17:00–21:00 Monday–Friday and 07:00–21:00 on Saturday; full-time students have no time restriction. NTA9 is always evening/weekend (enter its count under Full-time). Changes save immediately.</div>';
   h+=`<div class="controls"><button class="btn" onclick="progModal()">+ Add programme</button>`+
      `<button class="btn sec" onclick="entityEdit(null)">+ Add single row</button>`+
+     `<button class="btn" style="background:#33507f" onclick="captureEnrol()">📥 Capture from timetable</button>`+
      `<a class="btn sec" href="/api/ref/enrolment/template.csv">Download template</a>`+
      `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('enrolment',this)"></label>`+
      `<input type="text" id="esearch" placeholder="Search programme…" style="min-width:220px"><span class="small">${Object.keys(byProg).length} programmes</span></div>`;
@@ -532,6 +533,12 @@ async function enrSetTotal(id,total){
   const r=(DATAROWS||[]).find(x=>x._id===id);if(!r)return;
   await api('/ref/enrolment/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(enrBody(r,{total:total}))});
   r.total=total; toast('Saved');
+}
+async function captureEnrol(){
+  const ov=confirm('Fill enrolment totals from the class sizes already in the master timetable?\n\nClick OK to fill ONLY blank ones (keeps what you have typed).\nClick Cancel, then use this again choosing to overwrite, if you want every total replaced.');
+  if(!ov)return;
+  let r;try{r=await api('/enrolment/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({overwrite:false})});}catch(e){alert('Could not capture: '+e.message);return;}
+  toast('Captured enrolment for '+r.updated+' cohorts');await loadData();renderEnrolment();
 }
 async function enrSetEve(id,evening){
   const r=(DATAROWS||[]).find(x=>x._id===id);if(!r)return;

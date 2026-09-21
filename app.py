@@ -891,6 +891,45 @@ def instructors_merge():
     con.commit()
     return jsonify(ok=True, merged=len(drops))
 
+@app.post("/api/enrolment/capture")
+def enrolment_capture():
+    """Fill the enrolment totals from the class sizes already in the master
+    timetable: for each single-programme cohort, use the largest class (occ)
+    seen across both semesters. Existing non-empty totals are left untouched
+    unless overwrite=1."""
+    b = request.get_json(silent=True) or {}
+    overwrite = str(b.get("overwrite", "")).strip() in ("1", "true", "yes")
+    con = db()
+    sizes = {}
+    for prog, nta, occ in con.execute("SELECT prog, nta, occ FROM sessions"):
+        bps = base_programmes(prog)
+        if len(bps) != 1:      # skip merged/shared sessions (they double-count)
+            continue
+        try:
+            o = int(occ or 0)
+        except (TypeError, ValueError):
+            o = 0
+        key = (bps[0], nta or "")
+        if o > sizes.get(key, 0):
+            sizes[key] = o
+    updated = 0
+    for (bp, nta), o in sizes.items():
+        if o <= 0:
+            continue
+        row = con.execute("SELECT rowid, total FROM enrolment WHERE programme=? AND nta=?", (bp, nta)).fetchone()
+        if row:
+            cur_total = str(row[1] or "").strip()
+            if cur_total and not overwrite:
+                continue
+            con.execute("UPDATE enrolment SET total=? WHERE rowid=?", (o, row[0]))
+        else:
+            yr = "2" if ("Y2" in (nta or "")) else "1"
+            con.execute("INSERT INTO enrolment(programme, department, nta, year, female, male, total) VALUES(?,?,?,?,?,?,?)",
+                        (bp, guess_dept(bp), nta, yr, "", "", o))
+        updated += 1
+    con.commit()
+    return jsonify(ok=True, updated=updated)
+
 @app.get("/api/<sem>/catalogue")
 def catalogue(sem):
     from collections import defaultdict
