@@ -380,7 +380,7 @@ async function renderTeaching(){
      '<button class="btn" onclick="lecturerModal(null)">+ New lecturer</button>'+
      '<a class="btn sec" href="/api/ref/teaching/template.csv">Download template</a>'+
      '<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV(\'teaching\',this)"></label>'+
-     (HODMODE?'':'<button class="btn sec" onclick="copyHodLink(\'teaching\')">🔗 Copy HoD link</button>')+'</div>';
+     (HODMODE?'':'<button class="btn sec" onclick="copyHodLink()">🔗 Copy HoD link</button>')+'</div>';
   if(window.__tInstr) h+=`<div class="small" style="margin:2px 0 8px"><b>${esc(cur.dept||'—')}</b> · ${esc(cur.qual||'qualification not set')}${cur.position?' · '+esc(cur.position):''} <button class="btn small sec" onclick="lecturerModal(${cur._id})">Edit lecturer details</button></div>`;
   TEACHROWS=rows;
   h+='<div class="controls" style="background:#eef3fb;padding:10px 12px;border-radius:8px"><b>Add a module '+esc(window.__tInstr||'')+' can teach:</b> '+
@@ -461,7 +461,7 @@ async function renderEnrolment(){
      `<button class="btn sec" onclick="entityEdit(null)">+ Add single row</button>`+
      `<a class="btn sec" href="/api/ref/enrolment/template.csv">Download template</a>`+
      `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('enrolment',this)"></label>`+
-     (HODMODE?'':`<button class="btn sec" onclick="copyHodLink('enrolment')">🔗 Copy HoD link</button>`)+
+     (HODMODE?'':`<button class="btn sec" onclick="copyHodLink()">🔗 Copy HoD link</button>`)+
      `<input type="text" id="esearch" placeholder="Search programme…" style="min-width:220px"><span class="small">${Object.keys(byProg).length} programmes</span></div>`;
   h+='<div class="wrap"><table id="etbl">';
   Object.keys(byProg).sort().forEach(prog=>{
@@ -618,8 +618,11 @@ async function autocompleteR1(){
   alert('Auto-complete finished.\n\nAdded: '+r.added+' new sessions.\nCould not place (rooms or lecturer already full): '+r.unresolved+
     (r.unresolved_sample&&r.unresolved_sample.length?'\n\nExamples that need manual attention:\n• '+r.unresolved_sample.join('\n• '):''));}
 
-// ---- HoD submission page (opened via a shared link, e.g. ...?hod=teaching) ----
+// ---- HoD editing page (opened via one shared link: ...?hod=all) ----
+// 'all' opens the whole Data area (all tabs). teaching/enrolment are kept so
+// any older single-tab links people already have still work.
 const HOD={
+  all:{title:'Update your department’s data'},
   teaching:{title:'Teaching Capability — lecturers and the modules they can teach',
     sub:'Choose your department and lecturer, then add every module they can teach. The NTA level fills in automatically from the module code — change it if a lecturer is cleared for a different level. Changes save immediately.'},
   enrolment:{title:'Enrolment — students per programme and NTA level',
@@ -628,8 +631,26 @@ const HOD={
 async function renderHodPage(key){
   HODMODE=key;
   document.getElementById('nav').style.display='none';
-  const tog=document.querySelector('.semtoggle'); if(tog)tog.style.display='none';
   const ab=document.getElementById('adminbtn'); if(ab)ab.style.display='none';
+  if(key==='all'){
+    // keep the Semester I / II switch (Venues & Curriculum are per-semester)
+    const tog=document.querySelector('.semtoggle'); if(tog)tog.style.display='';
+    if($('semI'))$('semI').onclick=()=>hodSem('I');
+    if($('semII'))$('semII').onclick=()=>hodSem('II');
+    const sub=document.querySelector('header .sub'); if(sub)sub.textContent='Head of Department — update your department’s data';
+    try{await loadData();}catch(e){}
+    document.querySelector('main').innerHTML=
+      '<div style="max-width:1180px;margin:14px auto;padding:0 12px">'+
+      '<h2 style="color:var(--navy)">Head of Department — update your department’s data</h2>'+
+      '<div class="note">Dear Head of Department — use the tabs below to update your <b>lecturers</b>, the <b>modules</b> each can teach (the NTA level fills in from the module code), your <b>venues</b>, <b>curriculum</b> and <b>enrolment</b>. Venues and Curriculum are per-semester — use the Semester I / II switch at the top right. Every change saves immediately.</div>'+
+      '<div id="hoddata"></div></div>';
+    DATASUB='teaching';
+    hodData();
+    document.getElementById('status').textContent='● ready';
+    return;
+  }
+  // legacy single-tab modes
+  const tog=document.querySelector('.semtoggle'); if(tog)tog.style.display='none';
   const sub=document.querySelector('header .sub'); if(sub)sub.textContent='Head of Department — '+(key==='teaching'?'Teaching capability':'Enrolment');
   try{await loadData();}catch(e){}
   DATASUB=key;
@@ -641,11 +662,20 @@ async function renderHodPage(key){
   if(key==='teaching')renderTeaching(); else renderEnrolment();
   document.getElementById('status').textContent='● ready';
 }
-function copyHodLink(entity){const url=location.origin+'/?hod='+entity;
-  const label=entity==='teaching'?'Teaching capability':'Enrolment';
+// tab bar + panel for the all-access HoD page
+function hodData(){
+  const bar='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="hodSub('${s[0]}')">${s[1]}</button>`).join('')+'</div>';
+  const el=document.getElementById('hoddata'); if(!el)return;
+  el.innerHTML=bar+'<div id="datapanel"><div class="small">Loading…</div></div>';
+  renderDataPanel();
+}
+function hodSub(k){DATASUB=k;hodData();}
+async function hodSem(sem){SEM=sem;if($('semI'))$('semI').className=sem==='I'?'on':'';if($('semII'))$('semII').className=sem==='II'?'on':'';try{await loadData();}catch(e){}hodData();}
+// one link for HoDs — opens every data tab for editing
+function copyHodLink(){const url=location.origin+'/?hod=all';
   (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(url):Promise.reject()).then(
-    ()=>{toast('Link copied — share it with your HoDs');alert('HoD link for '+label+' copied to clipboard:\n\n'+url+'\n\nSend this to your Heads of Department. When they open it they can edit their '+label.toLowerCase()+' directly in the system — no template, no upload.');},
-    ()=>{prompt('Copy this HoD link for '+label+' and share it with your Heads of Department:',url);});}
+    ()=>{toast('HoD link copied — share it with your HoDs');alert('One HoD link copied to clipboard:\n\n'+url+'\n\nShare it with your Heads of Department. When they open it, they can edit their lecturers, modules, venues, curriculum and enrolment directly — no template, no upload.');},
+    ()=>{prompt('Copy this HoD link and share it with your Heads of Department:',url);});}
 // init
 (function(){
   const hod=new URLSearchParams(location.search).get('hod');
