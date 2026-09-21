@@ -498,6 +498,62 @@ async function renderEnrolment(){
   const s=$('esearch'); if(s)s.oninput=()=>{const qq=s.value.toLowerCase();
     document.querySelectorAll('#etbl tr[data-prog]').forEach(tr=>{tr.style.display=(!qq||tr.dataset.prog.toLowerCase().includes(qq))?'':'none';});};
 }
+// ---- Curriculum: clustered by Programme -> NTA level -> modules, with a Semester
+// column, all editable. Credits/Class are not shown here. ----
+let CURRROWS=[];
+async function renderCurriculum(){
+  const p=$('datapanel');
+  const [ri,rii]=await Promise.all([api('/ref/curriculum?sem=I'),api('/ref/curriculum?sem=II')]);
+  const rows=[...ri.rows.map(r=>Object.assign({},r,{sem:'I'})),...rii.rows.map(r=>Object.assign({},r,{sem:'II'}))];
+  CURRROWS=rows;
+  const byProg={};
+  rows.forEach(r=>{const pr=r.programme||'—',lv=r.nta||'—';(byProg[pr]||(byProg[pr]={}));(byProg[pr][lv]||(byProg[pr][lv]=[])).push(r);});
+  let h='<div class="note">Curriculum is grouped by <b>programme</b>, then <b>NTA level</b>, then the modules under each level. The <b>Semester</b> column shows when each module is taught. Everything is editable — use <b>Drop level</b> if a level does not apply to a programme, or <b>+ Add level</b> / <b>+ Add module</b> to extend. Changes save immediately.</div>';
+  h+=`<div class="controls"><input type="text" id="csearch" placeholder="Search programme, level, code or module…" style="min-width:300px"><span class="small">${Object.keys(byProg).length} programmes · ${rows.length} module entries</span></div>`;
+  h+='<div class="wrap"><table id="ctbl">';
+  Object.keys(byProg).sort().forEach(prog=>{
+    const missing=NTAOPTS.filter(l=>!byProg[prog][l]);
+    const addSel=`<select class="addlvlsel" data-prog="${esc(prog)}" style="margin-left:8px;font-size:12px"><option value="">+ Add level…</option>`+missing.map(l=>`<option value="${l}">${l}</option>`).join('')+`</select>`;
+    h+=`<tr data-row="prog" style="background:var(--navy)"><td colspan="4" style="color:#fff"><b>${esc(progFull(prog))}</b> <span style="opacity:.85">(${esc(prog)})</span> ${missing.length?addSel:''}</td></tr>`;
+    Object.keys(byProg[prog]).sort((a,b)=>ntaLevel(a)-ntaLevel(b)).forEach(lv=>{
+      h+=`<tr data-row="lvl" style="background:var(--lblue)"><td colspan="4"><b>${esc(lv)}</b> <button class="btn small addmod" data-prog="${esc(prog)}" data-lvl="${esc(lv)}">+ Add module</button> <button class="btn small danger droplvl" data-prog="${esc(prog)}" data-lvl="${esc(lv)}">Drop ${esc(lv)}</button></td></tr>`;
+      h+=`<tr data-row="hdr"><th style="background:#6b83b5;width:110px">Semester</th><th style="background:#6b83b5;width:140px">Code</th><th style="background:#6b83b5">Module</th><th style="background:#6b83b5;width:90px"></th></tr>`;
+      byProg[prog][lv].slice().sort((a,b)=>String(a.module).localeCompare(String(b.module))).forEach(m=>{
+        h+=`<tr data-row="mod" data-text="${esc((prog+' '+lv+' '+(m.code||'')+' '+(m.module||'')).toLowerCase())}">`+
+           `<td><select onchange="currSet(${m._id},'sem',this.value)"><option value="I"${m.sem==='I'?' selected':''}>I</option><option value="II"${m.sem==='II'?' selected':''}>II</option></select></td>`+
+           `<td><input value="${esc(m.code||'')}" style="width:130px" onchange="currSet(${m._id},'code',this.value)"></td>`+
+           `<td><input value="${esc(m.module||'')}" style="width:100%" onchange="currSet(${m._id},'module',this.value)"></td>`+
+           `<td><button class="btn small danger" onclick="currDel(${m._id})">Remove</button></td></tr>`;
+      });
+    });
+  });
+  p.innerHTML=h+'</table></div>';
+  document.querySelectorAll('#ctbl .addmod').forEach(b=>b.onclick=()=>currAddModule(b.dataset.prog,b.dataset.lvl));
+  document.querySelectorAll('#ctbl .droplvl').forEach(b=>b.onclick=()=>currDropLevel(b.dataset.prog,b.dataset.lvl));
+  document.querySelectorAll('#ctbl .addlvlsel').forEach(s=>s.onchange=()=>{if(s.value)currAddLevel(s.dataset.prog,s.value);});
+  const cs=$('csearch');if(cs)cs.oninput=()=>{const q=cs.value.toLowerCase();
+    document.querySelectorAll('#ctbl tr[data-row="mod"]').forEach(tr=>{tr.style.display=(!q||(tr.dataset.text||'').includes(q))?'':'none';});};
+}
+async function currSet(id,field,value){
+  const r=(CURRROWS||[]).find(x=>x._id===id);if(!r)return;
+  if(field==='sem')r.sem=value; else r[field]=value;
+  await api('/ref/curriculum/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({programme:r.programme,nta:r.nta,code:r.code||'',module:r.module||'',credit:r.credit||'',cls:r.cls||'',sem:r.sem})});
+  if(field==='sem'){toast('Semester updated');} else {toast('Saved');}
+}
+async function currAddModule(prog,lvl){
+  await api('/ref/curriculum',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({programme:prog,nta:lvl,code:'',module:'New module',credit:'',cls:'',sem:(SEM||'II')})});
+  toast('Module added — edit its code and name');renderCurriculum();
+}
+async function currAddLevel(prog,lvl){ await currAddModule(prog,lvl); }
+async function currDropLevel(prog,lvl){
+  const ids=(CURRROWS||[]).filter(r=>r.programme===prog&&(r.nta||'')===lvl).map(r=>r._id);
+  if(!confirm('Remove '+lvl+' and its '+ids.length+' module(s) from '+prog+'?'))return;
+  for(const id of ids){await api('/ref/curriculum/'+id,{method:'DELETE'});}
+  toast('Removed '+lvl+' from '+prog);renderCurriculum();
+}
+async function currDel(id){await api('/ref/curriculum/'+id,{method:'DELETE'});toast('Removed');renderCurriculum();}
 function progModal(){
   const depts=[...new Set((DATAROWS||[]).map(x=>x.department).filter(Boolean))].sort();
   const levels=["NTA4","NTA5","NTA6","NTA7 Y1","NTA7 Y2","NTA8","NTA9"];
@@ -523,6 +579,7 @@ async function renderDataPanel(){
   const p=$('datapanel');
   if(DATASUB==='teaching')return renderTeaching();
   if(DATASUB==='enrolment')return renderEnrolment();
+  if(DATASUB==='curriculum')return renderCurriculum();
   const cfg=REFC[DATASUB]; const q=cfg.sem?`?sem=${SEM}`:'';
   const r=await api(`/ref/${DATASUB}${q}`); DATAROWS=r.rows;
   let deptSel='';
