@@ -533,7 +533,11 @@ async function renderDataPanel(){
     `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('${DATASUB}',this)"></label>`+
     `<input type="text" id="dsearch" placeholder="Search…" style="min-width:200px"><span class="small">${r.rows.length} rows`+(cfg.sem?` · Semester ${SEM}`:' · shared')+`</span></div>`;
   h+='<div class="wrap"><table id="dtbl"><tr>'+cfg.labels.map(l=>`<th>${l}</th>`).join('')+'<th></th></tr>';
-  h+=r.rows.map(row=>'<tr>'+cfg.cols.map(c=>`<td>${esc(row[c])}</td>`).join('')+
+  h+=r.rows.map(row=>'<tr>'+cfg.cols.map(c=>{
+       let v=row[c];
+       if(c==='programme'){const f=progFull(v);if(f&&f!==v)v=f+' ('+v+')';}
+       return `<td>${esc(v)}</td>`;
+     }).join('')+
      `<td style="white-space:nowrap"><button class="btn small" onclick="entityEdit(${row._id})">Edit</button> <button class="btn small danger" onclick="entityDel(${row._id})">✕</button></td></tr>`).join('');
   p.innerHTML=h+'</table></div>';
   if(DATASUB==='instructors')wireInstrFilters(); else wireSearch();
