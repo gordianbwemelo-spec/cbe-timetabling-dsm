@@ -274,7 +274,7 @@ const SUBS=[['instructors','Instructors & qualifications'],['teaching','Teaching
 R.data=function(){
   let h=`<h2>Data entry — Semester ${SEM}</h2>`;
   h+='<div class="note">Add or upload the information the timetable is built from. Edit rows one by one, or use <b>Download template</b> then <b>Upload CSV</b> to load many at once. Venues &amp; Curriculum are per-semester; the others are shared across both.</div>';
-  h+='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="dataSub('${s[0]}')">${s[1]}</button>`).join('')+'</div>';
+  h+='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="dataSub('${s[0]}')">${s[1]}</button>`).join('')+'<button class="btn" style="margin-left:auto;background:#1f7a4d" onclick="copyHodLink()">🔗 Copy HoD link (share with HoDs)</button></div>';
   h+='<div id="datapanel"><div class="small">Loading…</div></div>';
   $('t-data').innerHTML=h; renderDataPanel();
 };
@@ -380,7 +380,7 @@ async function renderTeaching(){
      '<button class="btn" onclick="lecturerModal(null)">+ New lecturer</button>'+
      '<a class="btn sec" href="/api/ref/teaching/template.csv">Download template</a>'+
      '<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV(\'teaching\',this)"></label>'+
-     (HODMODE?'':'<button class="btn sec" onclick="copyHodLink()">🔗 Copy HoD link</button>')+'</div>';
+     '</div>';
   if(window.__tInstr) h+=`<div class="small" style="margin:2px 0 8px"><b>${esc(cur.dept||'—')}</b> · ${esc(cur.qual||'qualification not set')}${cur.position?' · '+esc(cur.position):''} <button class="btn small sec" onclick="lecturerModal(${cur._id})">Edit lecturer details</button></div>`;
   TEACHROWS=rows;
   h+='<div class="controls" style="background:#eef3fb;padding:10px 12px;border-radius:8px"><b>Add a module '+esc(window.__tInstr||'')+' can teach:</b> '+
@@ -461,7 +461,6 @@ async function renderEnrolment(){
      `<button class="btn sec" onclick="entityEdit(null)">+ Add single row</button>`+
      `<a class="btn sec" href="/api/ref/enrolment/template.csv">Download template</a>`+
      `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('enrolment',this)"></label>`+
-     (HODMODE?'':`<button class="btn sec" onclick="copyHodLink()">🔗 Copy HoD link</button>`)+
      `<input type="text" id="esearch" placeholder="Search programme…" style="min-width:220px"><span class="small">${Object.keys(byProg).length} programmes</span></div>`;
   h+='<div class="wrap"><table id="etbl">';
   Object.keys(byProg).sort().forEach(prog=>{
