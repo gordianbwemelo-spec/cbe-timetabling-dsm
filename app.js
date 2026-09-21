@@ -647,6 +647,7 @@ async function renderDataPanel(){
   let h=`<div class="controls"><button class="btn" onclick="entityEdit(null)">+ Add row</button>`+deptSel+
     `<a class="btn sec" href="/api/ref/${DATASUB}/template.csv">Download template</a>`+
     `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('${DATASUB}',this)"></label>`+
+    (DATASUB==='instructors'?`<button class="btn sec" onclick="findDupInstr()">🔎 Find &amp; merge duplicates</button>`:'')+
     `<input type="text" id="dsearch" placeholder="Search…" style="min-width:200px"><span class="small">${r.rows.length} rows`+(cfg.sem?` · Semester ${SEM}`:' · shared')+`</span></div>`;
   h+='<div class="wrap"><table id="dtbl"><tr>'+cfg.labels.map(l=>`<th>${l}</th>`).join('')+'<th></th></tr>';
   h+=r.rows.map(row=>'<tr>'+cfg.cols.map(c=>{
@@ -657,6 +658,31 @@ async function renderDataPanel(){
      `<td style="white-space:nowrap"><button class="btn small" onclick="entityEdit(${row._id})">Edit</button> <button class="btn small danger" onclick="entityDel(${row._id})">✕</button></td></tr>`).join('');
   p.innerHTML=h+'</table></div>';
   if(DATASUB==='instructors')wireInstrFilters(); else wireSearch();
+}
+// normalise an instructor name for duplicate detection (drop titles/punctuation)
+function normNm(n){return (n||'').toUpperCase().replace(/\b(DR|PROF|MR|MRS|MS|MISS|MADAM|ENG|CPA)\b\.?/g,' ').replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();}
+function findDupInstr(){
+  const names=[...new Set((DATAROWS||[]).map(r=>r.name).filter(Boolean))];
+  const groups={}; names.forEach(n=>{const k=normNm(n);(groups[k]||(groups[k]=[])).push(n);});
+  const dups=Object.values(groups).filter(g=>g.length>1);
+  window.__dupGroups=dups;
+  if(!dups.length){alert('No duplicate instructor names found.');return;}
+  let h='<h3>Possible duplicate instructors</h3><div class="small" style="margin-bottom:6px">Pick the name to <b>keep</b> in each group, then Merge. Merging moves that person’s modules and any scheduled sessions onto the kept name and deletes the other spellings.</div>';
+  dups.forEach((g,i)=>{const keep=g.slice().sort((a,b)=>b.length-a.length)[0];
+    h+=`<div style="margin:8px 0;padding:8px;border:1px solid #dbe2ef;border-radius:6px">`+
+       `Keep: <select id="dk_${i}">`+g.map(n=>`<option${n===keep?' selected':''}>${esc(n)}</option>`).join('')+`</select> `+
+       `<button class="btn small" onclick="mergeDupGroup(${i})">Merge these ${g.length}</button>`+
+       `<div class="small" style="margin-top:4px;color:#555">${g.map(esc).join('  ·  ')}</div></div>`;});
+  h+='<div style="text-align:right;margin-top:8px"><button class="btn sec" onclick="closeModal()">Close</button></div>';
+  $('modal').innerHTML=h;$('overlay').classList.add('show');
+}
+async function mergeDupGroup(i){
+  const g=(window.__dupGroups||[])[i]; if(!g)return;
+  const keep=$('dk_'+i).value; const drop=g.filter(n=>n!==keep);
+  if(!drop.length){alert('Nothing to merge.');return;}
+  if(!confirm('Merge '+drop.join(', ')+'\n\ninto: '+keep+' ?'))return;
+  try{await api('/instructors/merge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keep,drop})});}catch(e){alert('Merge failed: '+e.message);return;}
+  toast('Merged into '+keep); closeModal(); await loadData(); renderNav(); renderDataPanel();
 }
 function wireInstrFilters(){const s=$('dsearch'),d=$('ddept');
   const apply=()=>{const q=(s?s.value.toLowerCase():''),dv=(d?d.value:'All departments');
