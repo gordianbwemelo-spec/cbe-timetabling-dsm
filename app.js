@@ -701,8 +701,11 @@ function sameInstr(a,b){const na=normNm(a),nb=normNm(b);if(!na||!nb)return false
   if(na.length>=6&&nb.length>=6&&(na.includes(nb)||nb.includes(na)))return true;
   const d=lev(na,nb),L=Math.max(na.length,nb.length);
   return d<=2 || (L>=10 && d<=Math.round(L*0.15));}
-function findDupInstr(){
-  const names=[...new Set((DATAROWS||[]).map(r=>r.name).filter(Boolean))];
+async function findDupInstr(){
+  let names;
+  try{names=(await api('/instructor_names')).names||[];}
+  catch(e){names=[...new Set((DATAROWS||[]).map(r=>r.name).filter(Boolean))];}
+  names=[...new Set(names.filter(Boolean))];
   // union-find grouping over fuzzy matches
   const parent=names.map((_,i)=>i); const find=x=>{while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
   for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)if(sameInstr(names[i],names[j])){parent[find(i)]=find(j);}

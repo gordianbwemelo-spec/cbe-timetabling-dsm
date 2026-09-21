@@ -870,6 +870,16 @@ def module_assign_del(sem, rid):
     db().execute("DELETE FROM curriculum WHERE rowid=? AND semester=?", (rid, sem)); db().commit()
     return jsonify(ok=True)
 
+@app.get("/api/instructor_names")
+def instructor_names():
+    """Every instructor name in use — from the instructor records AND from the
+    timetable sessions of both semesters (so name typos in the schedule are
+    also caught by the duplicate finder)."""
+    con = db()
+    names = set(r[0] for r in con.execute("SELECT name FROM instructors WHERE IFNULL(name,'')!=''"))
+    names |= set(r[0] for r in con.execute("SELECT DISTINCT instr FROM sessions WHERE IFNULL(instr,'')!=''"))
+    return jsonify(names=sorted(names))
+
 @app.post("/api/instructors/merge")
 def instructors_merge():
     """Merge duplicate instructors: reassign their teaching capability and any
