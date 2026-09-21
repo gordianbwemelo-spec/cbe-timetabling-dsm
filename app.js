@@ -2,30 +2,20 @@
 const STARTS=[7,9,11,13,15,17,19], EVE=new Set([17,19]);
 let DAYS=["Mon","Tue","Wed","Thu","Fri","Sat"], PERIODS=STARTS.map(t=>pad(t)+":00-"+pad(t+2)+":00");
 let SEM="II", D=null, CUR="overview";
-let ADMIN=true, ADMIN_PIN="", HODMODE="";
+let CAMPUS=localStorage.getItem('cbe_campus')||"", CAMPUS_NAME=localStorage.getItem('cbe_campus_name')||"";
 function pad(n){return('0'+n).slice(-2);}
 function timeOf(t){return pad(t)+":00-"+pad(t+2)+":00";}
 const esc=s=>(''+(s==null?'':s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const $=id=>document.getElementById(id);
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
 
-async function api(path,opts){const r=await fetch('/api'+path,opts);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
+async function api(path,opts){opts=opts||{};const h=Object.assign({},opts.headers||{});if(CAMPUS)h['X-Campus']=CAMPUS;opts.headers=h;const r=await fetch('/api'+path,opts);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
 async function loadData(){
   try{D=await api('/'+SEM+'/data');$('status').textContent='● connected';$('status').style.color='#8fe0a5';}
   catch(e){$('status').textContent='● offline';$('status').style.color='#f5b7b1';throw e;}
   if(D.meta&&D.meta.days){DAYS=D.meta.days;}
-  try{const st=(await api('/settings')).settings;if(st){if(st.academic_year&&$('acadyear'))$('acadyear').textContent=st.academic_year;
-    ADMIN_PIN=st.admin_pin||'';ADMIN=(ADMIN_PIN==='')||(localStorage.getItem('cbe_admin')===ADMIN_PIN);updateAdminBtn();}}catch(e){}
+  try{const st=(await api('/settings')).settings;if(st&&st.academic_year&&$('acadyear'))$('acadyear').textContent=st.academic_year;}catch(e){}
 }
-function updateAdminBtn(){const b=$('adminbtn');if(!b)return;
-  if(HODMODE||!ADMIN_PIN){b.style.display='none';return;}
-  b.style.display='';b.textContent=ADMIN?'🔓 Admin (log out)':'🔒 Admin log in';}
-function adminToggle(){
-  if(ADMIN){localStorage.removeItem('cbe_admin');ADMIN=false;toast('Logged out — view only');}
-  else{const p=prompt('Enter the Admin PIN to edit data and rules:');if(p==null)return;
-    if(p===ADMIN_PIN){localStorage.setItem('cbe_admin',p);ADMIN=true;toast('Admin unlocked');}else{alert('Wrong PIN.');return;}}
-  updateAdminBtn();renderNav();
-  if(!ADMIN&&(CUR==='data'||CUR==='rules'||CUR==='sessions'))go('overview');else R[CUR]();}
 function S(){return D.sessions;}
 function VENS(){return D.venues;}
 function venMap(){const m={};VENS().forEach(v=>m[v.venue]=v);return m;}
@@ -36,8 +26,7 @@ function renderNav(){const m=der().metrics;
   const items=[['overview','Overview'],['timetable','Timetable'],['sessions','Sessions'],['instr','Instructor TT'],
    ['progtt','Programme TT'],
    ['venue','Venue Dashboard'],['workload','Workload'],['capacity','Venue Capacity'],['catalogue','Catalogue'],
-   ['streams','Streams'],['flags','Red-flags'],['reports','Reports'],['rules','Rules'],['data','Data']]
-   .filter(it=>ADMIN||!['data','rules','sessions'].includes(it[0]));  // editing surfaces are admin-only when a PIN is set
+   ['streams','Streams'],['flags','Red-flags'],['reports','Reports'],['rules','Rules'],['data','Data']];
   $('nav').innerHTML=items.map(it=>`<button class="${it[0]===CUR?'active':''}" onclick="go('${it[0]}')">${it[1]}${it[0]==='flags'&&m.hard?`<span class="badge">${m.hard}</span>`:''}</button>`).join('');
 }
 function go(k){CUR=k;document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));$('t-'+k).classList.add('active');renderNav();R[k]();}
@@ -248,11 +237,11 @@ R.flags=function(){const m=der().metrics;const hard=der().flags.filter(f=>f.seve
     `<span class="small">After adding the lecturer (and their teaching capability), go to Rules → Generate again.</span></div>`;
   const r1=der().flags.filter(f=>f.type.startsWith('R1')).length;
   if(r1)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${r1}</b> module/stream blocks don't yet have their two weekly sessions.</span>`+
-    (ADMIN?`<button class="btn" onclick="autocompleteR1()">⚙ Auto-complete missing 2nd sessions</button>`:'')+
+    `<button class="btn" onclick="autocompleteR1()">⚙ Auto-complete missing 2nd sessions</button>`+
     `<span class="small">Adds a second session (same lecturer, different day) in the earliest free daytime slot; anything that won't fit is listed here.</span></div>`;
   const r10=der().flags.filter(f=>f.type.startsWith('R10')).length;
   if(r10)h+=`<div class="note warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span><b>${r10}</b> stream(s) have more than 3 back-to-back sessions in a day.</span>`+
-    (ADMIN?`<button class="btn" onclick="spreadSem()">⚙ Spread out (move extras to free slots)</button>`:'')+
+    `<button class="btn" onclick="spreadSem()">⚙ Spread out (move extras to free slots)</button>`+
     `<span class="small">Moves the overflow to a vacant, rule-valid slot on another day (e.g. an empty evening); anything that won't fit is listed.</span></div>`;
   const tbl=(rows,cls)=>{if(!rows.length)return '<p class="small">None.</p>';let t='<div class="wrap"><table><tr><th>Rule</th><th>Detail</th></tr>';
     rows.forEach(f=>t+=`<tr><td class="${cls}"><b>${f.type}</b></td><td>${esc(f.detail)}</td></tr>`);return t+'</table></div>';};
@@ -263,18 +252,18 @@ R.flags=function(){const m=der().metrics;const hard=der().flags.filter(f=>f.seve
 // ---------- Data management ----------
 const REFC={
   instructors:{cols:['name','dept','qual','position','status','module_limit','avail_days','avail_periods'],sem:false,labels:['Name','Department','Qualification','Position','Status','Module limit','Available days','Available periods'],num:[]},
-  teaching:{cols:['instructor','code','module','nta'],sem:false,labels:['Instructor','Module code','Module','NTA level (blank = any)'],num:[]},
-  venues:{cols:['venue','capacity','premises','type'],sem:true,labels:['Venue','Capacity','Premises','Type'],num:['capacity']},
-  curriculum:{cols:['programme','nta','code','module','credit','cls'],sem:true,labels:['Programme','NTA','Code','Module','Credit','Class'],num:[]},
+  teaching:{cols:['instructor','code','module'],sem:false,labels:['Instructor','Module code','Module'],num:[]},
+  venues:{cols:['venue','capacity','premises','type','pg'],sem:true,labels:['Venue','Capacity','Premises','Type','Postgrad room (1/0)'],num:['capacity','pg']},
+  curriculum:{cols:['programme','nta','code','module','credit','cls'],sem:true,labels:['Programme','NTA (auto from code)','Code','Module','Credit','Class'],num:[]},
   enrolment:{cols:['programme','department','nta','year','female','male','total'],sem:false,labels:['Programme','Department','NTA','Year','Female','Male','Total'],num:['total']},
 };
-let DATASUB='instructors', DATAROWS=[];
-const SUBS=[['instructors','Instructors & qualifications'],['teaching','Teaching capability'],['venues','Venues'],
+let DATASUB='premises', DATAROWS=[];
+const SUBS=[['premises','Premises'],['instructors','Instructors & qualifications'],['teaching','Teaching capability'],['venues','Venues'],
   ['curriculum','Curriculum'],['enrolment','Enrolment']];
 R.data=function(){
   let h=`<h2>Data entry — Semester ${SEM}</h2>`;
   h+='<div class="note">Add or upload the information the timetable is built from. Edit rows one by one, or use <b>Download template</b> then <b>Upload CSV</b> to load many at once. Venues &amp; Curriculum are per-semester; the others are shared across both.</div>';
-  h+='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="dataSub('${s[0]}')">${s[1]}</button>`).join('')+'<button class="btn" style="margin-left:auto;background:#1f7a4d" onclick="copyHodLink()">🔗 Copy HoD link (share with HoDs)</button></div>';
+  h+='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="dataSub('${s[0]}')">${s[1]}</button>`).join('')+'</div>';
   h+='<div id="datapanel"><div class="small">Loading…</div></div>';
   $('t-data').innerHTML=h; renderDataPanel();
 };
@@ -284,7 +273,7 @@ R.catalogue=async function(){const r=await api(`/${SEM}/catalogue`); window.__ca
   let h=`<h2>Module Catalogue — Semester ${SEM} <span class="small">(${r.rows.length} modules · ${cross} cross-cutting)</span></h2>`;
   h+='<div class="note">Each module shows the <b>programmes</b> and <b>NTA levels</b> in which it is taught; modules shared by more than one programme are tagged <b>cross-cutting</b>. Click <b>Edit</b> to correct a name or code everywhere it appears.</div>';
   h+='<div class="controls"><input type="text" id="dsearch" placeholder="Search module, code or programme…" style="min-width:280px"></div><div class="wrap"><table id="dtbl"><tr><th>Code</th><th>Module</th><th>Credit</th><th>Programmes</th><th>NTA levels</th><th></th></tr>';
-  h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}${x.cross?' <span class="pill amber">cross-cutting</span>':''}</td><td>${esc(x.credit)}</td><td>${esc(x.programmes)}</td><td>${esc(x.ntas)}</td><td>${ADMIN?`<button class="btn small" data-i="${i}">Edit</button>`:''}</td></tr>`).join('');
+  h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}${x.cross?' <span class="pill amber">cross-cutting</span>':''}</td><td>${esc(x.credit)}</td><td>${esc(x.programmes)}</td><td>${esc(x.ntas)}</td><td><button class="btn small" data-i="${i}">Edit</button></td></tr>`).join('');
   $('t-catalogue').innerHTML=h+'</table></div>'; wireSearch();
   document.querySelectorAll('#t-catalogue button[data-i]').forEach(b=>{b.onclick=()=>{const x=window.__cat[+b.dataset.i];moduleModal(x.code,x.module);};});};
 const NTAOPTS=['NTA4','NTA5','NTA6','NTA7 Y1','NTA7 Y2','NTA8','NTA9'];
@@ -379,12 +368,11 @@ async function renderTeaching(){
      '<b>Lecturer:</b> <select id="tinstr">'+(names.length?names.map(n=>`<option ${n===window.__tInstr?'selected':''}>${esc(n)}</option>`).join(''):'<option>(none in this department)</option>')+'</select>'+
      '<button class="btn" onclick="lecturerModal(null)">+ New lecturer</button>'+
      '<a class="btn sec" href="/api/ref/teaching/template.csv">Download template</a>'+
-     '<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV(\'teaching\',this)"></label>'+
-     '</div>';
+     '<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV(\'teaching\',this)"></label></div>';
   if(window.__tInstr) h+=`<div class="small" style="margin:2px 0 8px"><b>${esc(cur.dept||'—')}</b> · ${esc(cur.qual||'qualification not set')}${cur.position?' · '+esc(cur.position):''} <button class="btn small sec" onclick="lecturerModal(${cur._id})">Edit lecturer details</button></div>`;
   TEACHROWS=rows;
   h+='<div class="controls" style="background:#eef3fb;padding:10px 12px;border-radius:8px"><b>Add a module '+esc(window.__tInstr||'')+' can teach:</b> '+
-     '<input type="text" id="tmod" list="tmodlist" placeholder="Type or pick a module…" style="min-width:280px" oninput="tmodPick()">'+
+     '<input type="text" id="tmod" list="tmodlist" placeholder="Type or pick a module…" style="min-width:300px" oninput="tmodPick()">'+
      '<datalist id="tmodlist">'+mods.rows.map(m=>`<option value="${esc(m.module)}">${esc(m.code)}</option>`).join('')+'</datalist>'+
      '<span class="small">NTA level:</span> <select id="tnta">'+ntaSelectOpts('')+'</select>'+
      '<button class="btn" onclick="teachAdd()">+ Add module</button>'+
@@ -498,8 +486,37 @@ function progModal(){
     let r;try{r=await api('/enrolment/add_programme',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({programme:name,department:dept,levels:chosen})});}catch(e){alert('Could not add: '+e.message);return;}
     closeModal();renderEnrolment();toast('Added '+name+' with '+r.added+' NTA level(s)');};
 }
+async function renderPremises(){
+  const p=$('datapanel');
+  const r=await api('/premises');const rows=r.premises||[];
+  let h='<div class="note">Define this campus’s <b>premises</b> (sites/buildings). Tick <b>evening allowed</b> where classes may run after 17:00. Set <b>teaching days</b> per week. Venues are then attached to a premises.</div>';
+  h+='<div class="controls"><button class="btn" onclick="premEdit(null)">+ Add premises</button><span class="small">'+rows.length+' premises</span></div>';
+  h+='<div class="wrap"><table><tr><th>Premises</th><th>Evening allowed?</th><th>Teaching days/week</th><th>Note</th><th></th></tr>';
+  h+=rows.map(x=>`<tr><td><b>${esc(x.name)}</b></td><td>${x.allow_evening?'Yes':'No'}</td><td>${x.days}</td><td>${esc(x.note||'')}</td>`+
+    `<td style="white-space:nowrap"><button class="btn small" onclick='premEdit(${JSON.stringify(x)})'>Edit</button> <button class="btn small danger" onclick="premDel(${x._id})">✕</button></td></tr>`).join('');
+  p.innerHTML=h+'</table></div>';
+}
+function premEdit(x){
+  x=x||{name:'',allow_evening:1,days:6,note:''};
+  $('modal').innerHTML='<h3>'+(x._id?'Edit':'Add')+' premises</h3>'+
+    '<div style="display:flex;flex-direction:column;gap:8px">'+
+    '<label style="font-size:12px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Premises name<input type="text" id="p_name" value="'+esc(x.name)+'" placeholder="e.g. Main Campus, Town Centre"></label>'+
+    '<label style="font-size:12px;color:#4a5568"><input type="checkbox" id="p_eve" '+(x.allow_evening?'checked':'')+'> Evening classes allowed (after 17:00)</label>'+
+    '<label style="font-size:12px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Teaching days per week<input type="number" id="p_days" value="'+(x.days||6)+'" min="1" max="7"></label>'+
+    '<label style="font-size:12px;color:#4a5568;display:flex;flex-direction:column;gap:3px">Note (optional)<input type="text" id="p_note" value="'+esc(x.note||'')+'"></label></div>'+
+    '<div style="text-align:right;margin-top:10px"><button class="btn sec" onclick="closeModal()">Cancel</button> <button class="btn" id="p_save">Save</button></div>';
+  $('overlay').classList.add('show');
+  $('p_save').onclick=async()=>{
+    const body={name:$('p_name').value.trim(),allow_evening:$('p_eve').checked,days:parseInt($('p_days').value)||6,note:$('p_note').value};
+    if(!body.name){alert('Please type a premises name.');return;}
+    if(x._id)await api('/premises/'+x._id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    else await api('/premises',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    closeModal();renderPremises();toast('Saved');};
+}
+async function premDel(id){if(!confirm('Delete this premises?'))return;await api('/premises/'+id,{method:'DELETE'});renderPremises();toast('Deleted');}
 async function renderDataPanel(){
   const p=$('datapanel');
+  if(DATASUB==='premises')return renderPremises();
   if(DATASUB==='teaching')return renderTeaching();
   if(DATASUB==='enrolment')return renderEnrolment();
   const cfg=REFC[DATASUB]; const q=cfg.sem?`?sem=${SEM}`:'';
@@ -553,7 +570,7 @@ function uploadCSV(entity,input){const f=input.files[0];if(!f)return;const rd=ne
     if(entity==='instructors'||entity==='venues'){await loadData();renderNav();}};
   rd.readAsText(f);}
 
-const SETLBL={academic_year:'Academic year (e.g. 2026/2027)',admin_pin:'Admin PIN (blank = anyone can edit; set it to lock editing to admins)',max_stream_size:'Max students per stream — “auto” = largest room',seat_tolerance:'Seat tolerance over room capacity',
+const SETLBL={academic_year:'Academic year (e.g. 2026/2027)',max_stream_size:'Max students per stream — “auto” = largest room',seat_tolerance:'Seat tolerance over room capacity',
   module_cap:'Max modules per instructor (hard cap)',daytime_cap:'Max daytime hours / week',evening_cap:'Max evening hours / week',
   soft_modules:'Soft limit — modules',soft_daytime:'Soft limit — daytime hours',soft_evening:'Soft limit — evening hours',
   lab_size:'Typical lab size (from venues)',classroom_size:'Typical classroom size (from venues)',days:'Teaching days'};
@@ -563,9 +580,9 @@ const BUILTIN_RULES=[
  'R3 — No instructor is double-booked.',
  'R4 — No cohort/stream is double-booked.',
  'R5 — No room loaded beyond capacity (+ tolerance).',
- 'R6 — Saba Saba venues end by 17:00.',
+ 'R6 — Evening classes only where the premises allows them.',
  'R7 — Laboratories/smart rooms only for hands-on IT modules.',
- 'R8 — Master’s (NTA9) only in the evening or Saturday, in BTA/BTB/BTC.',
+ 'R8 — Master’s (NTA9) only in the evening or Saturday, in postgraduate rooms (where defined).',
  'R9 — Appropriate allocation: Master’s to PhD holders; IT to ICT staff; modules only to capable staff.',
  'R10 — No stream has more than 3 back-to-back (consecutive) sessions in a day.',
  'L1–L3 — Load caps: max modules, daytime hours and evening hours per instructor.'];
@@ -579,7 +596,7 @@ R.rules=async function(){const r=await api('/settings');const s=r.settings;
   h+=`<div class="controls"><button class="btn" style="font-size:14px;padding:10px 18px" onclick="generateTT()">⚙ Generate Semester ${SEM} timetable</button></div>`;
   h+='<h3>Parameters</h3><div class="note">Stream sizes follow your actual <b>venue capacity</b>: leaving “Max students per stream” as <b>auto</b> makes each stream as large as the biggest room, so the number of streams is decided by the rooms you have. Change any value, then <b>Save parameters</b>.</div><div style="display:flex;flex-wrap:wrap;gap:12px;max-width:920px">';
   Object.keys(SETLBL).forEach(k=>{const v=s[k]==null?'':s[k];
-    h+=`<label style="flex:1;min-width:240px;font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">${SETLBL[k]}<input type="${k==='admin_pin'?'password':'text'}" ${k==='admin_pin'?'autocomplete="new-password"':''} data-set="${k}" value="${esc(v)}">${HINT[k]?`<span class="small" style="font-size:10px">${esc(HINT[k])}</span>`:''}</label>`;});
+    h+=`<label style="flex:1;min-width:240px;font-size:11px;color:#4a5568;display:flex;flex-direction:column;gap:3px">${SETLBL[k]}<input type="text" data-set="${k}" value="${esc(v)}">${HINT[k]?`<span class="small" style="font-size:10px">${esc(HINT[k])}</span>`:''}</label>`;});
   h+='</div><div class="controls"><button class="btn" onclick="saveSettings()">Save parameters</button></div>';
   h+='<h3>Additional requirements</h3><div class="note">Record extra requirements/notes for reviewers (shown here and printable). Structured constraints can be wired into generation on request.</div>';
   h+='<div class="controls"><input type="text" id="newrule" placeholder="e.g. Keep Marketing NTA4 at Saba Saba only…" style="min-width:360px"><button class="btn" onclick="addRule()">+ Add requirement</button></div>';
@@ -595,8 +612,7 @@ async function generateTT(){
 }
 async function saveSettings(){const s={};document.querySelectorAll('[data-set]').forEach(el=>s[el.dataset.set]=el.value);
   await api('/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:s})});toast('Parameters saved');
-  if(s.academic_year&&$('acadyear'))$('acadyear').textContent=s.academic_year;
-  if('admin_pin' in s){ADMIN_PIN=s.admin_pin||'';if(ADMIN&&ADMIN_PIN)localStorage.setItem('cbe_admin',ADMIN_PIN);updateAdminBtn();renderNav();}}
+  if(s.academic_year&&$('acadyear'))$('acadyear').textContent=s.academic_year;}
 async function addRule(){const el=$('newrule');const t=el.value.trim();if(!t)return;
   await api('/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});R.rules();}
 async function delRule(id){await api('/rules/'+id,{method:'DELETE'});R.rules();}
@@ -617,67 +633,43 @@ async function autocompleteR1(){
   alert('Auto-complete finished.\n\nAdded: '+r.added+' new sessions.\nCould not place (rooms or lecturer already full): '+r.unresolved+
     (r.unresolved_sample&&r.unresolved_sample.length?'\n\nExamples that need manual attention:\n• '+r.unresolved_sample.join('\n• '):''));}
 
-// ---- HoD editing page (opened via one shared link: ...?hod=all) ----
-// 'all' opens the whole Data area (all tabs). teaching/enrolment are kept so
-// any older single-tab links people already have still work.
-const HOD={
-  all:{title:'Update your department’s data'},
-  teaching:{title:'Teaching Capability — lecturers and the modules they can teach',
-    sub:'Choose your department and lecturer, then add every module they can teach. The NTA level fills in automatically from the module code — change it if a lecturer is cleared for a different level. Changes save immediately.'},
-  enrolment:{title:'Enrolment — students per programme and NTA level',
-    sub:'Fill in the Female, Male and Total students for each programme and NTA level. Use “+ Add programme” if a programme is missing. Changes save immediately.'},
-};
-async function renderHodPage(key){
-  HODMODE=key;
-  document.getElementById('nav').style.display='none';
-  const ab=document.getElementById('adminbtn'); if(ab)ab.style.display='none';
-  if(key==='all'){
-    // keep the Semester I / II switch (Venues & Curriculum are per-semester)
-    const tog=document.querySelector('.semtoggle'); if(tog)tog.style.display='';
-    if($('semI'))$('semI').onclick=()=>hodSem('I');
-    if($('semII'))$('semII').onclick=()=>hodSem('II');
-    const sub=document.querySelector('header .sub'); if(sub)sub.textContent='Head of Department — update your department’s data';
-    try{await loadData();}catch(e){}
-    document.querySelector('main').innerHTML=
-      '<div style="max-width:1180px;margin:14px auto;padding:0 12px">'+
-      '<h2 style="color:var(--navy)">Head of Department — update your department’s data</h2>'+
-      '<div class="note">Dear Head of Department — use the tabs below to update your <b>lecturers</b>, the <b>modules</b> each can teach (the NTA level fills in from the module code), your <b>venues</b>, <b>curriculum</b> and <b>enrolment</b>. Venues and Curriculum are per-semester — use the Semester I / II switch at the top right. Every change saves immediately.</div>'+
-      '<div id="hoddata"></div></div>';
-    DATASUB='teaching';
-    hodData();
-    document.getElementById('status').textContent='● ready';
-    return;
-  }
-  // legacy single-tab modes
-  const tog=document.querySelector('.semtoggle'); if(tog)tog.style.display='none';
-  const sub=document.querySelector('header .sub'); if(sub)sub.textContent='Head of Department — '+(key==='teaching'?'Teaching capability':'Enrolment');
-  try{await loadData();}catch(e){}
-  DATASUB=key;
-  document.querySelector('main').innerHTML=
-    '<div style="max-width:1080px;margin:14px auto;padding:0 12px">'+
-    '<h2 style="color:var(--navy)">'+esc(HOD[key].title)+'</h2>'+
-    '<div class="note">Dear Head of Department — '+esc(HOD[key].sub)+'</div>'+
-    '<div id="datapanel"><div class="small">Loading…</div></div></div>';
-  if(key==='teaching')renderTeaching(); else renderEnrolment();
-  document.getElementById('status').textContent='● ready';
+// ---------------- campus selection ----------------
+async function showCampusPicker(){
+  let reg={campuses:[]};
+  try{reg=await api('/campuses');}catch(e){}
+  const list=reg.campuses||[];
+  const rows=list.length?list.map(c=>`<button class="btn" style="display:block;width:100%;text-align:left;margin:6px 0;padding:10px 14px" onclick="pickCampus('${esc(c.slug)}','${esc(c.name).replace(/'/g,"\\'")}')">🏫 ${esc(c.name)}</button>`).join(''):'<div class="small" style="margin:8px 0">No campuses yet. Add your first one below.</div>';
+  const h=`<h3 style="margin-top:0">Choose your campus</h3>
+    <div class="small">Each campus keeps its own separate data. Pick one to work on, or add a new campus.</div>
+    <div style="margin:14px 0">${rows}</div>
+    <hr><h4 style="margin:10px 0 6px">Add a new campus</h4>
+    <div class="frow"><label style="flex:1">Campus name<input type="text" id="newcampus" placeholder="e.g. Dodoma Campus"></label>
+    <button class="btn primary" style="align-self:flex-end" onclick="createCampus()">Add campus</button></div>`;
+  $('modal').innerHTML=h; $('overlay').classList.add('show');
 }
-// tab bar + panel for the all-access HoD page
-function hodData(){
-  const bar='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="hodSub('${s[0]}')">${s[1]}</button>`).join('')+'</div>';
-  const el=document.getElementById('hoddata'); if(!el)return;
-  el.innerHTML=bar+'<div id="datapanel"><div class="small">Loading…</div></div>';
-  renderDataPanel();
+async function createCampus(){
+  const n=($('newcampus').value||'').trim(); if(!n){alert('Please type a campus name.');return;}
+  let r; try{r=await api('/campuses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})});}catch(e){alert('Could not add: '+e.message);return;}
+  pickCampus(r.slug,r.name);
 }
-function hodSub(k){DATASUB=k;hodData();}
-async function hodSem(sem){SEM=sem;if($('semI'))$('semI').className=sem==='I'?'on':'';if($('semII'))$('semII').className=sem==='II'?'on':'';try{await loadData();}catch(e){}hodData();}
-// one link for HoDs — opens every data tab for editing
-function copyHodLink(){const url=location.origin+'/?hod=all';
-  (navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(url):Promise.reject()).then(
-    ()=>{toast('HoD link copied — share it with your HoDs');alert('One HoD link copied to clipboard:\n\n'+url+'\n\nShare it with your Heads of Department. When they open it, they can edit their lecturers, modules, venues, curriculum and enrolment directly — no template, no upload.');},
-    ()=>{prompt('Copy this HoD link and share it with your Heads of Department:',url);});}
+function pickCampus(slug,name){
+  CAMPUS=slug;CAMPUS_NAME=name;localStorage.setItem('cbe_campus',slug);localStorage.setItem('cbe_campus_name',name);
+  closeModal();boot();
+}
+function switchCampus(){CAMPUS="";localStorage.removeItem('cbe_campus');showCampusPicker();}
+function campusBadge(){
+  const el=$('campusName'); if(el){el.textContent=CAMPUS_NAME||'—';}
+}
+async function boot(){
+  campusBadge();
+  try{await setSem('II');}
+  catch(e){$('status').textContent='● cannot reach server';document.querySelector('main').innerHTML='<div class="note warn">Could not connect to the server. Make sure the app is running and reload this page.</div>';}
+}
 // init
-(function(){
-  const hod=new URLSearchParams(location.search).get('hod');
-  if(hod&&HOD[hod]){renderHodPage(hod);return;}
-  (async()=>{try{await setSem('II');}catch(e){$('status').textContent='● cannot reach server';document.querySelector('main').innerHTML='<div class="note warn">Could not connect to the server. Make sure the app is running and reload this page.</div>';}})();
+(async()=>{
+  let reg={campuses:[]};
+  try{reg=await api('/campuses');}catch(e){$('status').textContent='● cannot reach server';return;}
+  const slugs=(reg.campuses||[]).map(c=>c.slug);
+  if(CAMPUS&&slugs.includes(CAMPUS)){const c=reg.campuses.find(x=>x.slug===CAMPUS);CAMPUS_NAME=c?c.name:CAMPUS;boot();}
+  else{CAMPUS="";showCampusPicker();}
 })();
