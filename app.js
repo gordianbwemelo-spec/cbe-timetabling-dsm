@@ -161,19 +161,33 @@ function openEdit(id){CONFIRMED=false;const s=id==null?{day:'Mon',t:7,venue:VENS
 function closeModal(){$('overlay').classList.remove('show');}
 document.addEventListener('click',e=>{if(e.target&&e.target.id==='overlay')closeModal();});
 
-R.instr=function(){const names=[...new Set(S().map(s=>s.instr).filter(Boolean))].sort();
-  let h=`<h2>Instructor Timetable — Semester ${SEM}</h2><div class="controls">Instructor: <select id="isel">`+names.map(n=>`<option>${esc(n)}</option>`).join('')+`</select></div><div id="ig" class="wrap"></div>`;
+R.instr=function(){
+  // every instructor from the shared master list (same in both semesters), plus
+  // anyone who appears in this semester's sessions (e.g. an ad-hoc part-timer).
+  const names=[...new Set([...Object.keys(D.instructors||{}), ...S().map(s=>s.instr).filter(Boolean)])].sort();
+  if(!window.__isel||!names.includes(window.__isel))window.__isel=names[0]||'';
+  const opts=list=>list.map(n=>`<option${n===window.__isel?' selected':''}>${esc(n)}</option>`).join('');
+  let h=`<h2>Instructor Timetable — Semester ${SEM}</h2><div class="controls">`+
+    `Search: <input type="text" id="isearch" placeholder="Type a name…" style="min-width:220px"> `+
+    `Instructor: <select id="isel">`+opts(names)+`</select> <span class="small">${names.length} instructors</span></div><div id="ig" class="wrap"></div>`;
   $('t-instr').innerHTML=h;
-  const draw=()=>{const n=$('isel').value;const all=S();
+  const draw=()=>{const n=window.__isel;const all=S();
     let g='<table class="grid"><tr><th>Day</th>'+PERIODS.map(p=>`<th>${p}</th>`).join('')+'</tr>';
     DAYS.forEach(d=>{g+=`<tr><td style="text-align:left"><b>${d}</b></td>`+STARTS.map(t=>{const s=all.find(x=>x.instr===n&&x.day===d&&x.t===t);
-      return s?`<td class="occ">${esc(s.mod)}\n${esc(s.prog)}\n@${esc(s.venue)}</td>`:'<td class="vac"></td>';}).join('')+'</tr>';});
+      return s?`<td class="occ">${esc(s.mod)}\n${esc(s.prog)} ${esc(s.nta||'')} ${esc(s.stream||'')}\n@${esc(s.venue)}</td>`:'<td class="vac"></td>';}).join('')+'</tr>';});
     const w=der().workload.find(x=>x.instructor===n)||{modules:0,daytime_h:0,evening_h:0,total_h:0,flags:[]};const inf=D.instructors[n]||{};
-    g+='</table><div class="small" style="margin-top:6px">'+(inf.dept?('Dept: '+esc(inf.dept)+(inf.qual?' · '+esc(inf.qual):'')+' · '):'')+
+    const bits=[]; if(inf.dept)bits.push('Dept: '+esc(inf.dept)); if(inf.qual)bits.push(esc(inf.qual)); if(inf.position)bits.push(esc(inf.position)); if(inf.status)bits.push(esc(inf.status));
+    g+='</table><div class="small" style="margin-top:6px">'+(bits.length?bits.join(' · ')+' · ':'')+
       'Modules: '+w.modules+' · Daytime '+w.daytime_h+'h · Evening '+w.evening_h+'h · Total '+w.total_h+'h '+
+      (w.total_h===0?'<span class="pill">no sessions this semester</span> ':'')+
       (w.flags.length?'<span class="pill amber">'+esc(w.flags.join(', '))+'</span>':'<span class="pill ok">within limits</span>')+'</div>';
     $('ig').innerHTML=g;};
-  $('isel').onchange=draw;draw();
+  $('isel').onchange=()=>{window.__isel=$('isel').value;draw();};
+  $('isearch').oninput=()=>{const q=$('isearch').value.toLowerCase();
+    const filtered=names.filter(n=>!q||n.toLowerCase().includes(q));
+    if(filtered.length&&!filtered.includes(window.__isel))window.__isel=filtered[0];
+    $('isel').innerHTML=opts(filtered.length?filtered:names); draw();};
+  draw();
 };
 function baseProgs(p){p=(p||'').replace(/\(STRM[^)]*\)/gi,'');
   return [...new Set(p.split(/[+,]/).map(s=>s.replace(/\s+/g,' ').trim().replace(/^,+|,+$/g,'')).filter(Boolean))];}
