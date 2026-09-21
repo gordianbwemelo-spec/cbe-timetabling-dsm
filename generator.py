@@ -47,6 +47,8 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
         return m.group(1) if m else None
     # capability: module/code -> list of (instructor, level-they-may-teach or None=any)
     can = defaultdict(list)
+    _cap_seen = set()
+    can_count = defaultdict(int)   # how many distinct modules each lecturer can teach
     for t in teaching:
         n = t.get("instructor")
         if not n:
@@ -56,6 +58,9 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
             can[("m", t["module"].strip().lower())].append((n, tl))
         if t.get("code"):
             can[("c", t["code"].strip().lower())].append((n, tl))
+        key = (t.get("code") or "").strip().lower() or ("m:" + (t.get("module") or "").strip().lower())
+        if key.strip(":") and (n, key) not in _cap_seen:
+            _cap_seen.add((n, key)); can_count[n] += 1
     enr = {}       # daytime / full-time headcount
     enr_eve = {}   # evening-and-weekend-only headcount
     for e in enrolment:
@@ -159,7 +164,10 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                     stats["sessions_needed"] += 2
                     mkey = (mod, code)
                     cand = eligible(nta, mod, code)
-                    cand.sort(key=lambda n: iday[n] + ieve[n])
+                    # Prefer the lecturer who lists this module and can teach the
+                    # fewest modules (a specialist), so their listed modules aren't
+                    # taken by generalists; then balance by current load.
+                    cand.sort(key=lambda n: (can_count.get(n, 999), iday[n] + ieve[n]))
                     done = False
                     for instr in cand:
                         new_mod = mkey not in imod[instr]
