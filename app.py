@@ -11,77 +11,34 @@ SETTINGS_DEFAULTS = {
     "seat_tolerance": "10", "max_stream_size": "auto", "lab_size": "auto", "classroom_size": "auto",
     "module_cap": "7", "daytime_cap": "32", "evening_cap": "20",
     "soft_modules": "6", "soft_daytime": "28", "soft_evening": "16",
-    "days": "Mon,Tue,Wed,Thu,Fri,Sat", "academic_year": "2025/2026",
+    "days": "Mon,Tue,Wed,Thu,Fri,Sat", "academic_year": "2025/2026", "admin_pin": "",
 }
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-def data_dir():
-    """Folder holding one SQLite file per campus (kept off cloud-synced folders).
-    Override with CBE_DATA (used on the server for the persistent disk)."""
-    if os.environ.get("CBE_DATA"):
-        d = os.environ["CBE_DATA"]
-    elif os.environ.get("CBE_DB"):
-        d = os.path.dirname(os.environ["CBE_DB"]) or BASE
-    else:
-        base = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
-        d = os.path.join(base, "CBE_Timetabling_MultiCampus")
+def default_db():
+    """Keep the database off cloud-synced folders (e.g. OneDrive) to avoid file
+    locking issues. Uses a per-user local data directory; override with CBE_DB."""
+    if os.environ.get("CBE_DB"):
+        return os.environ["CBE_DB"]
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    d = os.path.join(base, "CBE_Timetabling")
     try:
         os.makedirs(d, exist_ok=True)
+        return os.path.join(d, "timetable.db")
     except Exception:
-        d = BASE
-    return d
+        return os.path.join(BASE, "timetable.db")
 
-DATA_DIR = data_dir()
-REGISTRY = os.path.join(DATA_DIR, "campuses.json")
+DB = default_db()
+SEED = os.path.join(BASE, "seed_data.json")
 app = Flask(__name__, static_folder="static")
-
-def slugify(name):
-    s = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-")
-    return s or "campus"
-
-def load_registry():
-    try:
-        return json.load(open(REGISTRY, encoding="utf-8"))
-    except Exception:
-        return {}
-
-def save_registry(reg):
-    json.dump(reg, open(REGISTRY, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-
-def campus_db_path(slug):
-    return os.path.join(DATA_DIR, "campus_%s.db" % slug)
-
-def add_campus(name):
-    reg = load_registry()
-    slug = base = slugify(name); i = 2
-    while slug in reg:
-        slug = "%s-%d" % (base, i); i += 1
-    reg[slug] = (name or "").strip() or slug
-    save_registry(reg)
-    con = sqlite3.connect(campus_db_path(slug)); init_schema(con); con.close()
-    return slug, reg[slug]
 
 SESSION_FIELDS = ["semester", "day", "t", "time", "venue", "cap", "prog", "nta", "stream", "mod", "code", "instr", "occ", "est"]
 
 # ----------------------------------------------------------------- DB
-@app.before_request
-def _set_campus():
-    slug = request.headers.get("X-Campus") or request.args.get("campus")
-    reg = load_registry()
-    if slug and slug in reg:
-        g.campus = slug
-        p = campus_db_path(slug)
-        if not os.path.exists(p):
-            con = sqlite3.connect(p); init_schema(con); con.close()
-    else:
-        g.campus = None
-
 def db():
-    if not getattr(g, "campus", None):
-        raise RuntimeError("no campus selected")
     if "db" not in g:
-        g.db = sqlite3.connect(campus_db_path(g.campus))
+        g.db = sqlite3.connect(DB)
         g.db.row_factory = sqlite3.Row
     return g.db
 
@@ -90,26 +47,38 @@ def _close(e=None):
     d = g.pop("db", None)
     if d: d.close()
 
-def init_schema(con):
+def nta_from_code(code):
+    """Derive the NTA level from a module code: after the letters, the two digits
+    give the level (04->NTA4 … 09->NTA9); for NTA7 the next digit picks the year
+    (4 = Year 2, otherwise Year 1). Returns '' when the code doesn't match."""
+    m = re.match(r"^[A-Za-z]+(\d{2})(\d)", (code or "").strip())
+    if not m:
+        return ""
+    blk = int(m.group(1)); sem = m.group(2)
+    if blk == 7:
+        return "NTA7 Y2" if sem == "4" else "NTA7 Y1"
+    if 4 <= blk <= 9:
+        return "NTA%d" % blk
+    return ""
+
+def init_db():
+    con = sqlite3.connect(DB)
     con.executescript("""
     CREATE TABLE IF NOT EXISTS sessions(
       id INTEGER PRIMARY KEY AUTOINCREMENT, semester TEXT, day TEXT, t INTEGER, time TEXT,
       venue TEXT, cap INTEGER, prog TEXT, nta TEXT, stream TEXT, mod TEXT, code TEXT,
       instr TEXT, occ INTEGER, est INTEGER);
     CREATE TABLE IF NOT EXISTS venues(
-      semester TEXT, venue TEXT, capacity INTEGER, premises TEXT, is_lab INTEGER, type TEXT, pg INTEGER DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS premises(name TEXT PRIMARY KEY, allow_evening INTEGER DEFAULT 1, days INTEGER DEFAULT 6, note TEXT);
+      semester TEXT, venue TEXT, capacity INTEGER, premises TEXT, is_lab INTEGER, type TEXT);
     CREATE TABLE IF NOT EXISTS instructors(name TEXT PRIMARY KEY, dept TEXT, qual TEXT, is_phd INTEGER, matched INTEGER);
     CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
-    CREATE TABLE IF NOT EXISTS teaching(instructor TEXT, code TEXT, module TEXT, nta TEXT);
+    CREATE TABLE IF NOT EXISTS teaching(instructor TEXT, code TEXT, module TEXT);
     CREATE TABLE IF NOT EXISTS curriculum(semester TEXT, programme TEXT, nta TEXT, code TEXT, module TEXT, credit TEXT, cls TEXT);
     CREATE TABLE IF NOT EXISTS enrolment(programme TEXT, nta TEXT, year TEXT, female TEXT, male TEXT, total INTEGER);
     CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT);
     CREATE TABLE IF NOT EXISTS custom_rules(text TEXT);
     CREATE TABLE IF NOT EXISTS gen_flags(semester TEXT, type TEXT, detail TEXT, severity TEXT);
     """)
-    if "pg" not in [r[1] for r in con.execute("PRAGMA table_info(venues)")]:
-        con.execute("ALTER TABLE venues ADD COLUMN pg INTEGER DEFAULT 0")
     for k, v in SETTINGS_DEFAULTS.items():
         con.execute("INSERT OR IGNORE INTO settings(k, v) VALUES(?, ?)", (k, v))
     # migrate the old fixed sizes to venue-driven "auto" (only if still untouched)
@@ -127,17 +96,58 @@ def init_schema(con):
     ecols = [r[1] for r in con.execute("PRAGMA table_info(enrolment)")]
     if "department" not in ecols:
         con.execute("ALTER TABLE enrolment ADD COLUMN department TEXT")
-    # the NTA level a lecturer is cleared to teach (auto-filled from the module code)
     if "nta" not in [r[1] for r in con.execute("PRAGMA table_info(teaching)")]:
         con.execute("ALTER TABLE teaching ADD COLUMN nta TEXT")
     # backfill the NTA level from the module code for any capability row that has a
-    # code but no level yet. Rows already set by hand keep their value; codeless
-    # rows wait for a code.
+    # code but no level yet (auto-levels modules already in the system). Rows a HoD
+    # has already set by hand keep their value; codeless rows wait for a code.
     for rid, code in con.execute("SELECT rowid, code FROM teaching WHERE IFNULL(nta,'')='' AND IFNULL(code,'')!=''").fetchall():
-        lv = level_from_code(code)
+        lv = nta_from_code(code)
         if lv:
             con.execute("UPDATE teaching SET nta=? WHERE rowid=?", (lv, rid))
     con.commit()
+    n = con.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+    if n == 0:
+        seed(con)
+    # one-time heal: older databases stored Semester I cohorts with the
+    # placeholder levels "TFC"/"TNC" (or blank) instead of real NTA levels.
+    # Reload Semester I from the corrected seed and rebuild its curriculum so
+    # NTA4-9 show everywhere. Semester II and any user edits there are untouched.
+    try:
+        seed_ver = int(json.load(open(SEED, encoding="utf-8")).get("meta", {}).get("data_version", 0))
+    except Exception:
+        seed_ver = 0
+    vrow = con.execute("SELECT v FROM meta WHERE k='data_version'").fetchone()
+    db_ver = int(vrow[0]) if vrow and str(vrow[0]).isdigit() else 0
+    stale = con.execute("SELECT COUNT(*) FROM sessions WHERE semester='I' AND "
+                        "(nta IN ('TFC','TNC') OR IFNULL(nta,'')='')").fetchone()[0]
+    # combined NTA labels (e.g. 'NTA4/5', 'NTA7/8') are invalid — the only valid
+    # levels are NTA4, NTA5, NTA6, NTA7 Y1, NTA7 Y2, NTA8, NTA9. If any live
+    # session still carries a '/' in its level, force a full reload from seed.
+    combined = con.execute("SELECT COUNT(*) FROM sessions WHERE nta LIKE '%/%'").fetchone()[0]
+    if stale or combined or seed_ver > db_ver:
+        # a version bump (or any combined label) reloads BOTH semesters from the
+        # corrected seed; the older placeholder-only heal touches Semester I alone.
+        sems = ["I", "II"] if (seed_ver > db_ver or combined) else ["I"]
+        for s in sems:
+            seed(con, only_sem=s)
+        ph = ",".join("?" for _ in sems)
+        con.execute(f"DELETE FROM curriculum WHERE semester IN ({ph})", sems)
+        seen = set()
+        for sem, prog, nta, code, mod in con.execute(
+                f"SELECT DISTINCT semester, prog, nta, code, mod FROM sessions WHERE semester IN ({ph})", sems):
+            for bp in base_programmes(prog):
+                key = (sem, bp, nta or "", code or "", mod or "")
+                if key in seen:
+                    continue
+                seen.add(key)
+                con.execute("INSERT INTO curriculum(semester, programme, nta, code, module, credit, cls) VALUES(?,?,?,?,?,?,?)",
+                            (sem, bp, nta or "", code or "", mod or "", "", ""))
+        con.execute("DELETE FROM enrolment")   # rebuilt from real NTA levels below
+        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('data_version',?)", (str(seed_ver),))
+        con.commit()
+    seed_reference(con)
+    con.close()
 
 def base_programmes(prog):
     """Turn a timetable cohort label (which may combine programmes and streams,
@@ -217,32 +227,42 @@ def seed_reference(con):
     con.execute("UPDATE instructors SET status='On duty' WHERE IFNULL(status,'')=''")
     con.commit()
 
+def seed(con, only_sem=None):
+    data = json.load(open(SEED, encoding="utf-8"))
+    if only_sem:
+        con.execute("DELETE FROM sessions WHERE semester=?", (only_sem,))
+        con.execute("DELETE FROM venues WHERE semester=?", (only_sem,))
+        sems = [only_sem]
+    else:
+        con.execute("DELETE FROM sessions"); con.execute("DELETE FROM venues")
+        con.execute("DELETE FROM instructors"); con.execute("DELETE FROM meta")
+        sems = ["I", "II"]
+        con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('meta',?)", (json.dumps(data["meta"]),))
+        for name, inf in data["instructors"].items():
+            con.execute("INSERT OR REPLACE INTO instructors(name,dept,qual,is_phd,matched,position) VALUES(?,?,?,?,?,?)",
+                        (name, inf.get("dept"), inf.get("qual"), int(bool(inf.get("is_phd"))), int(bool(inf.get("matched"))), inf.get("position", "")))
+        for sem in ("I", "II"):
+            con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)",
+                        ("model_note_" + sem, data["semesters"][sem].get("model_note", "")))
+    for sem in sems:
+        S = data["semesters"][sem]
+        for v in S["venues"]:
+            con.execute("INSERT INTO venues VALUES(?,?,?,?,?,?)",
+                        (sem, v["venue"], v["capacity"], v["premises"], int(bool(v["is_lab"])), v["type"]))
+        for s in S["sessions"]:
+            con.execute(f"INSERT INTO sessions({','.join(SESSION_FIELDS)}) VALUES({','.join('?'*len(SESSION_FIELDS))})",
+                        (sem, s["day"], s["t"], s.get("time"), s["venue"], s.get("cap"), s.get("prog"), s.get("nta"),
+                         s.get("stream"), s.get("mod"), s.get("code"), s.get("instr"), s.get("occ"), int(bool(s.get("est")))))
+    con.commit()
+
 # ----------------------------------------------------------------- helpers
 def sess_rows(sem):
     return [dict(r) for r in db().execute("SELECT * FROM sessions WHERE semester=? ORDER BY id", (sem,))]
 
-def premises_map():
-    """name -> {allow_evening, days} for the active campus."""
-    return {r["name"]: {"allow_evening": (r["allow_evening"] if r["allow_evening"] is not None else 1),
-                        "days": (r["days"] if r["days"] is not None else 6)}
-            for r in db().execute("SELECT * FROM premises")}
-
 def venues(sem):
-    pm = premises_map()
-    out = []
-    for r in db().execute("SELECT * FROM venues WHERE semester=? ORDER BY capacity DESC", (sem,)):
-        k = r.keys()
-        prem = r["premises"] or ""
-        p = pm.get(prem, {})
-        out.append({"venue": r["venue"], "capacity": r["capacity"], "premises": prem,
-                    "is_lab": bool(r["is_lab"]), "type": r["type"],
-                    "pg": bool(r["pg"]) if "pg" in k else False,
-                    "no_evening": p.get("allow_evening", 1) == 0,
-                    "days": p.get("days", 6)})
-    any_pg = any(v["pg"] for v in out)
-    for v in out:
-        v["pg_required"] = any_pg
-    return out
+    return [{"venue": r["venue"], "capacity": r["capacity"], "premises": r["premises"],
+             "is_lab": bool(r["is_lab"]), "type": r["type"]}
+            for r in db().execute("SELECT * FROM venues WHERE semester=? ORDER BY capacity DESC", (sem,))]
 
 def venmap(sem): return {v["venue"]: v for v in venues(sem)}
 
@@ -326,9 +346,7 @@ def delete(sem, sid):
 
 @app.post("/api/<sem>/reset")
 def reset(sem):
-    db().execute("DELETE FROM sessions WHERE semester=?", (sem,))
-    db().execute("DELETE FROM gen_flags WHERE semester=?", (sem,))
-    db().commit()
+    con = sqlite3.connect(DB); seed(con, only_sem=sem); con.close()
     return jsonify(ok=True)
 
 @app.get("/api/<sem>/export.csv")
@@ -372,11 +390,11 @@ def _venue_ok(v, sess, t):
     """Would this venue satisfy the placement rules for this session at period t?"""
     if sess["occ"] > v["capacity"] + rules.TOL:
         return False
-    if v.get("no_evening") and t in rules.EVE:
+    if v["premises"] == "Saba" and t in rules.EVE:
         return False
     if v["is_lab"] and not rules.is_it(sess):
         return False
-    if "NTA9" in (sess.get("nta") or "") and v.get("pg_required") and not v.get("pg"):
+    if "NTA9" in (sess.get("nta") or "") and v["venue"] not in ("BTA", "BTB", "BTC"):
         return False
     return True
 
@@ -701,7 +719,7 @@ REF = {
                     "title": "Instructors & qualifications"},
     "teaching":    {"table": "teaching", "cols": ["instructor", "code", "module", "nta"], "sem": False, "ints": [],
                     "title": "Modules each instructor can teach"},
-    "venues":      {"table": "venues", "cols": ["venue", "capacity", "premises", "type", "pg"], "sem": True, "ints": ["capacity", "pg"],
+    "venues":      {"table": "venues", "cols": ["venue", "capacity", "premises", "type"], "sem": True, "ints": ["capacity"],
                     "title": "Venue names & capacity"},
     "curriculum":  {"table": "curriculum", "cols": ["programme", "nta", "code", "module", "credit", "cls"], "sem": True, "ints": [],
                     "title": "Modules per programme / NTA level"},
@@ -709,26 +727,10 @@ REF = {
                     "title": "Enrolment status"},
 }
 
-def level_from_code(code):
-    """CBE rule: the two digits after the letter prefix are the NTA level (e.g.
-    ACT04101 -> NTA4, ACP09215 -> NTA9). The next digit is the programme-semester;
-    for NTA7 (which spans two years) semester digit 4 = Year 2, otherwise Year 1."""
-    m = re.match(r"^[A-Za-z]{2,4}(\d)(\d)(\d)", (code or "").strip())
-    if not m:
-        return ""
-    lvl = int(m.group(1) + m.group(2))
-    if not (4 <= lvl <= 9):
-        return ""
-    if lvl == 7:
-        return "NTA7 Y2" if m.group(3) == "4" else "NTA7 Y1"
-    return "NTA%d" % lvl
-
 def _extra(entity, row, sem):
     ex = {}
     if REF[entity]["sem"]:
         ex["semester"] = sem
-    if entity == "curriculum" and not (row.get("nta") or "").strip() and row.get("code"):
-        row["nta"] = level_from_code(row["code"])   # auto-fill level from the code digit
     if entity == "venues":
         t = (row.get("type") or "") + " " + (row.get("venue") or "")
         ex["is_lab"] = 1 if re.search(r"lab|smart", t, re.I) else 0
@@ -813,6 +815,12 @@ def ref_import(entity):
         verb = "INSERT OR REPLACE" if entity == "instructors" else "INSERT"
         db().execute(f"{verb} INTO {cfg['table']}({','.join(allc)}) VALUES({','.join('?'*len(allc))})", vals)
         count += 1
+    # after an append (e.g. HoD submissions), drop any exact-duplicate rows so
+    # repeated uploads don't pile up.
+    if entity == "teaching":
+        db().execute("DELETE FROM teaching WHERE rowid NOT IN (SELECT MIN(rowid) FROM teaching GROUP BY IFNULL(instructor,''),IFNULL(code,''),IFNULL(module,''),IFNULL(nta,''))")
+    elif entity == "enrolment":
+        db().execute("DELETE FROM enrolment WHERE rowid NOT IN (SELECT MIN(rowid) FROM enrolment GROUP BY IFNULL(programme,''),IFNULL(nta,''),IFNULL(year,''))")
     db().commit(); return jsonify(ok=True, imported=count)
 
 @app.get("/api/modules")
@@ -827,7 +835,7 @@ def venuesizes(sem):
     halls = sorted(v["capacity"] for v in V if not v["is_lab"])
     classrooms = sorted(v["capacity"] for v in V if not v["is_lab"] and v["capacity"] <= 90)
     labs = sorted(v["capacity"] for v in V if v["is_lab"])
-    pg = [v["capacity"] for v in V if v.get("pg")]
+    pg = [v["capacity"] for v in V if v["venue"] in ("BTA", "BTB", "BTC")]
     med = lambda x: x[len(x) // 2] if x else 0
     return jsonify(largest_hall=(halls[-1] if halls else 0), typical_classroom=med(classrooms),
                    typical_lab=med(labs), postgrad_hall=(max(pg) if pg else 0))
@@ -1046,66 +1054,6 @@ def reports(sem):
                    "instructors": m["instructors"], "hard": m["hard"], "review": m["review"],
                    "overloads": m["overloads"], "vacant": m["vacant"]})
 
-# ----------------------------------------------------------------- campuses
-@app.get("/api/campuses")
-def campuses_list():
-    reg = load_registry()
-    return jsonify(campuses=[{"slug": s, "name": n} for s, n in sorted(reg.items(), key=lambda kv: kv[1].lower())])
-
-@app.post("/api/campuses")
-def campuses_add():
-    name = (request.get_json(force=True).get("name") or "").strip()
-    if not name:
-        return jsonify(error="Campus name is required"), 400
-    slug, disp = add_campus(name)
-    return jsonify(ok=True, slug=slug, name=disp)
-
-@app.put("/api/campuses/<slug>")
-def campuses_rename(slug):
-    reg = load_registry()
-    if slug not in reg: return jsonify(error="unknown campus"), 404
-    name = (request.get_json(force=True).get("name") or "").strip()
-    if name: reg[slug] = name; save_registry(reg)
-    return jsonify(ok=True, slug=slug, name=reg[slug])
-
-@app.delete("/api/campuses/<slug>")
-def campuses_delete(slug):
-    reg = load_registry()
-    if slug in reg:
-        del reg[slug]; save_registry(reg)
-        try: os.remove(campus_db_path(slug))
-        except Exception: pass
-    return jsonify(ok=True)
-
-# ----------------------------------------------------------------- premises
-@app.get("/api/premises")
-def premises_get():
-    rows = [dict(r) for r in db().execute("SELECT rowid AS _id, name, allow_evening, days, note FROM premises ORDER BY name")]
-    return jsonify(premises=rows)
-
-@app.post("/api/premises")
-def premises_add():
-    b = request.get_json(force=True)
-    name = (b.get("name") or "").strip()
-    if not name: return jsonify(error="Premises name is required"), 400
-    db().execute("INSERT OR REPLACE INTO premises(name, allow_evening, days, note) VALUES(?,?,?,?)",
-                 (name, int(bool(b.get("allow_evening", True))), int(b.get("days", 6) or 6), b.get("note", "")))
-    db().commit()
-    return jsonify(ok=True)
-
-@app.put("/api/premises/<int:rid>")
-def premises_update(rid):
-    b = request.get_json(force=True)
-    db().execute("UPDATE premises SET name=?, allow_evening=?, days=?, note=? WHERE rowid=?",
-                 (b.get("name", ""), int(bool(b.get("allow_evening", True))), int(b.get("days", 6) or 6), b.get("note", ""), rid))
-    db().commit()
-    return jsonify(ok=True)
-
-@app.delete("/api/premises/<int:rid>")
-def premises_delete(rid):
-    db().execute("DELETE FROM premises WHERE rowid=?", (rid,)); db().commit()
-    return jsonify(ok=True)
-
 # ----------------------------------------------------------------- static
 FRONTEND = {"index.html", "app.js", "style.css"}
 def _serve(name):
@@ -1127,6 +1075,8 @@ def lan_ip():
         ip = s.getsockname()[0]; s.close(); return ip
     except Exception:
         return "127.0.0.1"
+
+init_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

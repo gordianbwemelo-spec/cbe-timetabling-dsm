@@ -24,9 +24,8 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     # optionally capped by a manual "max_stream_size" if the user set a number.
     _halls = [v["capacity"] for v in venues if not v["is_lab"]]
     largest_hall = max(_halls) if _halls else 100
-    any_pg = any(v.get("pg") for v in venues)          # campus has dedicated postgraduate rooms?
-    _pg = [v["capacity"] for v in venues if v.get("pg")]
-    largest_pg = max(_pg) if _pg else largest_hall
+    _pg = [v["capacity"] for v in venues if v["venue"] in ("BTA", "BTB", "BTC")]
+    largest_pg = max(_pg) if _pg else 56
     try:
         user_cap = int(settings.get("max_stream_size"))
     except (TypeError, ValueError):
@@ -37,12 +36,11 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     DAYS = [d.strip() for d in (settings.get("days") or "Mon,Tue,Wed,Thu,Fri,Sat").split(",") if d.strip()]
 
     V = list(venues)
-    # teaching capability lookup (by module name and by code). Each entry keeps the
-    # NTA level the lecturer is cleared for (None = any level) so we can enforce
-    # that a lecturer only takes classes at a level they have legitimacy to teach.
+    # teaching capability lookup (by module name and by code)
     def _lvl(x):
         m = re.search(r"(\d)", x or "")
         return m.group(1) if m else None
+    # capability: module/code -> list of (instructor, level-they-may-teach or None=any)
     can = defaultdict(list)
     for t in teaching:
         n = t.get("instructor")
@@ -74,11 +72,11 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     def venue_ok(v, size, nta, mod, code, t):
         if size > v["capacity"] + tol:
             return False
-        if v.get("no_evening") and t in EVE:          # premises that forbid evening classes
+        if v["premises"] == "Saba" and t in EVE:
             return False
         if v["is_lab"] and not is_it(nta, mod, code):
             return False
-        if "NTA9" in (nta or "") and any_pg and not v.get("pg"):   # postgrad rooms only if the campus defines them
+        if "NTA9" in (nta or "") and v["venue"] not in ("BTA", "BTB", "BTC"):
             return False
         return True
 
