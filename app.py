@@ -870,6 +870,27 @@ def module_assign_del(sem, rid):
     db().execute("DELETE FROM curriculum WHERE rowid=? AND semester=?", (rid, sem)); db().commit()
     return jsonify(ok=True)
 
+@app.post("/api/instructors/merge")
+def instructors_merge():
+    """Merge duplicate instructors: reassign their teaching capability and any
+    sessions (both semesters) to the kept name, then delete the duplicates."""
+    b = request.get_json(force=True)
+    keep = (b.get("keep") or "").strip()
+    drops = [d.strip() for d in (b.get("drop") or []) if d.strip() and d.strip() != keep]
+    if not keep or not drops:
+        return jsonify(ok=False, error="need keep and drop names"), 400
+    con = db()
+    for d in drops:
+        con.execute("UPDATE teaching SET instructor=? WHERE instructor=?", (keep, d))
+        con.execute("UPDATE sessions SET instr=? WHERE instr=?", (keep, d))
+        con.execute("DELETE FROM instructors WHERE name=?", (d,))
+    # de-duplicate the kept lecturer's teaching rows
+    con.execute("DELETE FROM teaching WHERE instructor=? AND rowid NOT IN "
+                "(SELECT MIN(rowid) FROM teaching WHERE instructor=? GROUP BY IFNULL(code,''),IFNULL(module,''),IFNULL(nta,''))",
+                (keep, keep))
+    con.commit()
+    return jsonify(ok=True, merged=len(drops))
+
 @app.get("/api/<sem>/catalogue")
 def catalogue(sem):
     from collections import defaultdict

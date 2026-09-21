@@ -292,7 +292,9 @@ const SUBS=[['instructors','Instructors & qualifications'],['teaching','Teaching
 R.data=function(){
   let h=`<h2>Data entry — Semester ${SEM}</h2>`;
   h+='<div class="note">Add or upload the information the timetable is built from. Edit rows one by one, or use <b>Download template</b> then <b>Upload CSV</b> to load many at once. Venues &amp; Curriculum are per-semester; the others are shared across both.</div>';
-  h+='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="dataSub('${s[0]}')">${s[1]}</button>`).join('')+'<button class="btn" style="margin-left:auto;background:#1f7a4d" onclick="copyHodLink()">🔗 Copy HoD link (share with HoDs)</button></div>';
+  h+='<div class="controls">'+SUBS.map(s=>`<button class="btn ${s[0]===DATASUB?'':'sec'}" onclick="dataSub('${s[0]}')">${s[1]}</button>`).join('')+
+    '<button class="btn" style="margin-left:auto;background:#33507f" onclick="generateTT()">⚙ Generate / update all</button>'+
+    '<button class="btn" style="background:#1f7a4d" onclick="copyHodLink()">🔗 Copy HoD link (share with HoDs)</button></div>';
   h+='<div id="datapanel"><div class="small">Loading…</div></div>';
   $('t-data').innerHTML=h; renderDataPanel();
 };
@@ -316,6 +318,13 @@ function codeLevel(code){
   if(blk===7)return sem==='4'?'NTA7 Y2':'NTA7 Y1';
   if(blk>=4&&blk<=9)return 'NTA'+blk;
   return '';
+}
+// The semester a module runs in, from its code: the digit after the two level
+// digits is odd for Semester I, even for Semester II. '' when the code is missing.
+function semFromCode(code){
+  const m=/^[A-Za-z]+\d{2}(\d)/.exec((code||'').trim());
+  if(!m)return '';
+  return (parseInt(m[1],10)%2===1)?'I':'II';
 }
 // <option>s for an NTA level picker, with `sel` pre-selected (''=any level).
 function ntaSelectOpts(sel){
@@ -428,8 +437,8 @@ async function renderTeaching(){
      '<span class="small">NTA level:</span> <select id="tnta">'+ntaSelectOpts('')+'</select>'+
      '<button class="btn" onclick="teachAdd()">+ Add module</button>'+
      '<span class="small" style="color:#777">(filled in automatically from the module code — change it if needed)</span></div>';
-  h+=`<h3>${esc(window.__tInstr||'(no lecturer selected)')} — ${rows.length} module(s)</h3><div class="wrap"><table><tr><th>Module code</th><th>Module</th><th>NTA level</th><th></th></tr>`;
-  h+=rows.map(r=>`<tr><td><input value="${esc(r.code||'')}" placeholder="add code" style="width:110px" onchange="teachSetCode(${r._id},this.value)"></td><td>${esc(r.module)}</td><td><select onchange="teachSetNta(${r._id},this.value)">${ntaSelectOpts(r.nta||'')}</select></td><td><button class="btn small danger" onclick="teachDel(${r._id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="4" class="small">No modules yet — add some above.</td></tr>';
+  h+=`<h3>${esc(window.__tInstr||'(no lecturer selected)')} — ${rows.length} module(s)</h3><div class="wrap"><table><tr><th>Module code</th><th>Module</th><th>Semester</th><th>NTA level</th><th></th></tr>`;
+  h+=rows.map(r=>`<tr><td><input value="${esc(r.code||'')}" placeholder="add code" style="width:110px" onchange="teachSetCode(${r._id},this.value)"></td><td>${esc(r.module)}</td><td>${semFromCode(r.code)||'—'}</td><td><select onchange="teachSetNta(${r._id},this.value)">${ntaSelectOpts(r.nta||'')}</select></td><td><button class="btn small danger" onclick="teachDel(${r._id})">Remove</button></td></tr>`).join('')||'<tr><td colspan="5" class="small">No modules yet — add some above.</td></tr>';
   p.innerHTML=h+'</table></div>';
   $('tdept').onchange=()=>{window.__tDept=$('tdept').value;window.__tInstr='';renderTeaching();};
   $('tinstr').onchange=()=>{window.__tInstr=$('tinstr').value;renderTeaching();};
