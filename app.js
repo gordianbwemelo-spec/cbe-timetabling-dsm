@@ -661,10 +661,23 @@ async function renderDataPanel(){
 }
 // normalise an instructor name for duplicate detection (drop titles/punctuation)
 function normNm(n){return (n||'').toUpperCase().replace(/\b(DR|PROF|MR|MRS|MS|MISS|MADAM|ENG|CPA)\b\.?/g,' ').replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim();}
+// Levenshtein edit distance (small strings) — used to catch typo duplicates.
+function lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let p=Array.from({length:n+1},(_,i)=>i);
+  for(let i=1;i<=m;i++){let prev=p[0];p[0]=i;for(let j=1;j<=n;j++){const t=p[j];p[j]=Math.min(p[j]+1,p[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=t;}}return p[n];}
+// two names are "the same person" if, ignoring titles, they're identical, one
+// contains the other, or they're within a couple of typos of each other.
+function sameInstr(a,b){const na=normNm(a),nb=normNm(b);if(!na||!nb)return false;
+  if(na===nb)return true;
+  if(na.length>=6&&nb.length>=6&&(na.includes(nb)||nb.includes(na)))return true;
+  const d=lev(na,nb),L=Math.max(na.length,nb.length);
+  return d<=2 || (L>=10 && d<=Math.round(L*0.15));}
 function findDupInstr(){
   const names=[...new Set((DATAROWS||[]).map(r=>r.name).filter(Boolean))];
-  const groups={}; names.forEach(n=>{const k=normNm(n);(groups[k]||(groups[k]=[])).push(n);});
-  const dups=Object.values(groups).filter(g=>g.length>1);
+  // union-find grouping over fuzzy matches
+  const parent=names.map((_,i)=>i); const find=x=>{while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
+  for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)if(sameInstr(names[i],names[j])){parent[find(i)]=find(j);}
+  const byRoot={}; names.forEach((n,i)=>{const r=find(i);(byRoot[r]||(byRoot[r]=[])).push(n);});
+  const dups=Object.values(byRoot).filter(g=>g.length>1);
   window.__dupGroups=dups;
   if(!dups.length){alert('No duplicate instructor names found.');return;}
   let h='<h3>Possible duplicate instructors</h3><div class="small" style="margin-bottom:6px">Pick the name to <b>keep</b> in each group, then Merge. Merging moves that person’s modules and any scheduled sessions onto the kept name and deletes the other spellings.</div>';
