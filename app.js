@@ -488,15 +488,22 @@ async function renderEnrolment(){
     const rows=byProg[prog].sort((a,b)=>ntaLevel(a.nta)-ntaLevel(b.nta)||String(a.year).localeCompare(String(b.year)));
     const dept=rows[0].department||'—';
     const tot=rows.reduce((s,x)=>s+(parseInt(x.total)||0),0);
-    h+=`<tr data-prog="${esc(prog)}" style="background:var(--lblue)"><td colspan="5"><b>${esc(progFull(prog))}</b> <span class="small">— ${esc(prog)} · ${esc(dept)} · ${rows.length} NTA level(s)${tot?' · total '+tot:''}</span></td></tr>`;
-    h+=`<tr data-prog="${esc(prog)}"><th style="background:#6b83b5">NTA level</th><th style="background:#6b83b5">Female</th><th style="background:#6b83b5">Male</th><th style="background:#6b83b5">Total</th><th style="background:#6b83b5"></th></tr>`;
-    rows.forEach(x=>{h+=`<tr data-prog="${esc(prog)}"><td>${esc(x.nta)}</td><td>${esc(x.female)}</td><td>${esc(x.male)}</td><td>${esc(x.total)}</td>`+
-      `<td style="white-space:nowrap"><button class="btn small" onclick="entityEdit(${x._id})">Edit</button> <button class="btn small danger" onclick="entityDel(${x._id})">✕</button></td></tr>`;});
+    h+=`<tr data-prog="${esc(prog)}" style="background:var(--lblue)"><td colspan="3"><b>${esc(progFull(prog))}</b> <span class="small">— ${esc(prog)} · ${esc(dept)} · ${rows.length} NTA level(s)${tot?' · total '+tot:''}</span></td></tr>`;
+    h+=`<tr data-prog="${esc(prog)}"><th style="background:#6b83b5">NTA level</th><th style="background:#6b83b5">Total students</th><th style="background:#6b83b5"></th></tr>`;
+    rows.forEach(x=>{h+=`<tr data-prog="${esc(prog)}"><td>${esc(x.nta)}</td>`+
+      `<td><input type="number" min="0" value="${esc(x.total)}" style="width:110px" onchange="enrSetTotal(${x._id},this.value)"></td>`+
+      `<td style="white-space:nowrap"><button class="btn small danger" onclick="entityDel(${x._id})">✕</button></td></tr>`;});
   });
   h+='</table></div>';
   p.innerHTML=h;
   const s=$('esearch'); if(s)s.oninput=()=>{const qq=s.value.toLowerCase();
     document.querySelectorAll('#etbl tr[data-prog]').forEach(tr=>{tr.style.display=(!qq||tr.dataset.prog.toLowerCase().includes(qq))?'':'none';});};
+}
+async function enrSetTotal(id,total){
+  const r=(DATAROWS||[]).find(x=>x._id===id);if(!r)return;
+  await api('/ref/enrolment/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({programme:r.programme,department:r.department||'',nta:r.nta,year:r.year||'',female:r.female||'',male:r.male||'',total:total})});
+  r.total=total; toast('Saved');
 }
 // ---- Curriculum: pick one programme; a table of NTA-level rows, each with its
 // Semester I and Semester II modules side by side. All editable. ----
