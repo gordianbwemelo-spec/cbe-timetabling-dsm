@@ -50,7 +50,11 @@ R.overview=function(){const m=der().metrics;const est=m.estimated?' <span class=
    ['Items to review',m.review,''],['Instructors over a cap',m.overloads,m.overloads?'warn':'ok'],['At/over soft limit',m.softs,'']];
   const busy=[...der().vutil].sort((a,b)=>b.periods_used-a.periods_used).slice(0,10);
   const loads=der().workload.slice(0,10);
-  let h=`<h2>Overview — Semester ${SEM}${est}</h2><div class="cards">`;
+  let h=`<h2>Overview — Semester ${SEM}${est}</h2>`;
+  if(ADMIN)h+=`<div class="controls noprint" style="margin:4px 0 12px;background:#eef6f0;padding:10px 12px;border-radius:8px">`+
+    `<button class="btn" style="font-size:14px;padding:10px 18px;background:#1f7a4d" onclick="generateTT()">⚙ Generate Semester ${SEM} timetable &amp; workload</button>`+
+    `<span class="small">Builds the timetable, streams, instructor timetables, workload and reports from your <b>Data</b> and <b>Rules</b>. Replaces the current Semester ${SEM} schedule.</span></div>`;
+  h+=`<div class="cards">`;
   cards.forEach(c=>h+=`<div class="card ${c[2]}"><div class="n">${c[1]}</div><div class="l">${c[0]}</div></div>`);
   h+='</div><div class="note">'+esc(D.model_note||'')+'</div>';
   h+='<div class="two"><div><h3>Busiest venues</h3><div class="wrap"><table><tr><th>Venue [cap]</th><th>Used</th><th>Util</th></tr>';
@@ -200,7 +204,7 @@ R.progtt=function(){const all=S();
   const strms=['All streams',...[...new Set(all.filter(s=>baseProgs(s.prog).includes(window.__ptProg)&&s.nta===window.__ptNta).map(s=>s.stream).filter(x=>x))].sort()];
   if(!window.__ptStream||!strms.includes(window.__ptStream))window.__ptStream='All streams';
   let h=`<h2>Programme Timetable — Semester ${SEM}</h2>`;
-  h+=`<div class="controls noprint"><b>Programme:</b> <select id="ptsel">`+progs.map(p=>`<option ${p===window.__ptProg?'selected':''}>${esc(p)}</option>`).join('')+`</select>`+
+  h+=`<div class="controls noprint"><b>Programme:</b> <select id="ptsel">`+progs.map(p=>`<option value="${esc(p)}" ${p===window.__ptProg?'selected':''}>${esc(progFull(p))} (${esc(p)})</option>`).join('')+`</select>`+
      `<b>NTA level:</b> <select id="ptnta">`+ntas.map(n=>`<option ${n===window.__ptNta?'selected':''}>${esc(n)}</option>`).join('')+`</select>`+
      `<b>Stream:</b> <select id="ptstrm">`+strms.map(s=>`<option ${s===window.__ptStream?'selected':''}>${esc(s)}</option>`).join('')+`</select>`+
      `<button class="btn sec" onclick="window.print()">🖨 Print / Save PDF</button>`+
@@ -209,7 +213,7 @@ R.progtt=function(){const all=S();
   h+='<div id="ptgrid" class="wrap"></div>';
   $('t-progtt').innerHTML=h;
   const draw=()=>{const rows=ptRows();
-    let g=`<h3>${esc(window.__ptProg)} · ${esc(window.__ptNta)}${window.__ptStream!=='All streams'?' · Stream '+esc(window.__ptStream):''} — Semester ${SEM} <span class="small">(${rows.length} sessions)</span></h3>`;
+    let g=`<h3>${esc(progFull(window.__ptProg))} (${esc(window.__ptProg)}) · ${esc(window.__ptNta)}${window.__ptStream!=='All streams'?' · Stream '+esc(window.__ptStream):''} — Semester ${SEM} <span class="small">(${rows.length} sessions)</span></h3>`;
     g+='<table class="grid"><tr><th>Day</th>'+PERIODS.map(p=>`<th>${p}</th>`).join('')+'</tr>';
     DAYS.forEach(d=>{g+=`<tr><td style="text-align:left"><b>${d}</b></td>`+STARTS.map(t=>{
       const cell=rows.filter(s=>s.day===d&&s.t===t);
@@ -718,7 +722,7 @@ async function generateTT(){
   if(!confirm('Generate a fresh timetable for Semester '+SEM+' from the current data?\n\nThis REPLACES the current Semester '+SEM+' schedule. You can restore the published one later with Sessions → Reset to published.'))return;
   toast('Generating — this may take a moment…');
   let r;try{r=await api(`/${SEM}/generate`,{method:'POST'});}catch(e){alert('Generation failed: '+e.message);return;}
-  await loadData();renderNav();R.rules();
+  await loadData();renderNav();R[CUR]();
   alert('Generated Semester '+SEM+':\n\n• Streams created: '+r.stats.streams+'\n• Sessions placed: '+r.stats.sessions_placed+' of '+r.stats.sessions_needed+'\n• Red-flagged (need attention): '+r.stats.sessions_flagged+'\n\nOpen Timetable, Sessions, Streams and Red-flags to review.');
 }
 async function saveSettings(){const s={};document.querySelectorAll('[data-set]').forEach(el=>s[el.dataset.set]=el.value);
