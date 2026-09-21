@@ -96,6 +96,8 @@ def init_db():
     ecols = [r[1] for r in con.execute("PRAGMA table_info(enrolment)")]
     if "department" not in ecols:
         con.execute("ALTER TABLE enrolment ADD COLUMN department TEXT")
+    if "evening" not in ecols:
+        con.execute("ALTER TABLE enrolment ADD COLUMN evening INTEGER")  # evening/weekend-only headcount
     if "nta" not in [r[1] for r in con.execute("PRAGMA table_info(teaching)")]:
         con.execute("ALTER TABLE teaching ADD COLUMN nta TEXT")
     # backfill the NTA level from the module code for any capability row that has a
@@ -723,7 +725,7 @@ REF = {
                     "title": "Venue names & capacity"},
     "curriculum":  {"table": "curriculum", "cols": ["programme", "nta", "code", "module", "credit", "cls"], "sem": True, "ints": [],
                     "title": "Modules per programme / NTA level"},
-    "enrolment":   {"table": "enrolment", "cols": ["programme", "department", "nta", "year", "female", "male", "total"], "sem": False, "ints": ["total"],
+    "enrolment":   {"table": "enrolment", "cols": ["programme", "department", "nta", "year", "female", "male", "total", "evening"], "sem": False, "ints": ["total", "evening"],
                     "title": "Enrolment status"},
 }
 
