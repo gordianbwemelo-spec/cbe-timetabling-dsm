@@ -299,14 +299,31 @@ R.data=function(){
   $('t-data').innerHTML=h; renderDataPanel();
 };
 function dataSub(k){DATASUB=k;R.data();}
-R.catalogue=async function(){const r=await api(`/${SEM}/catalogue`); window.__cat=r.rows;
-  const cross=r.rows.filter(x=>x.cross).length;
-  let h=`<h2>Module Catalogue — Semester ${SEM} <span class="small">(${r.rows.length} modules · ${cross} cross-cutting)</span></h2>`;
-  h+='<div class="note">Each module shows the <b>programmes</b> and <b>NTA levels</b> in which it is taught; modules shared by more than one programme are tagged <b>cross-cutting</b>. Click <b>Edit</b> to correct a name or code everywhere it appears.</div>';
-  h+='<div class="controls"><input type="text" id="dsearch" placeholder="Search module, code or programme…" style="min-width:280px"></div><div class="wrap"><table id="dtbl"><tr><th>Code</th><th>Module</th><th>Credit</th><th>Programmes</th><th>NTA levels</th><th></th></tr>';
-  h+=r.rows.map((x,i)=>`<tr><td>${esc(x.code)}</td><td>${esc(x.module)}${x.cross?' <span class="pill amber">cross-cutting</span>':''}</td><td>${esc(x.credit)}</td><td>${esc(x.programmes)}</td><td>${esc(x.ntas)}</td><td>${ADMIN?`<button class="btn small" data-i="${i}">Edit</button>`:''}</td></tr>`).join('');
-  $('t-catalogue').innerHTML=h+'</table></div>'; wireSearch();
-  document.querySelectorAll('#t-catalogue button[data-i]').forEach(b=>{b.onclick=()=>{const x=window.__cat[+b.dataset.i];moduleModal(x.code,x.module);};});};
+R.catalogue=async function(){
+  const [ri,rii]=await Promise.all([api('/ref/curriculum?sem=I'),api('/ref/curriculum?sem=II')]);
+  const rows=[...ri.rows.map(r=>Object.assign({},r,{sem:'I'})),...rii.rows.map(r=>Object.assign({},r,{sem:'II'}))];
+  // a module taught in more than one programme is "cross-cutting"
+  const modProgs={}; rows.forEach(r=>{const m=(r.module||'').trim().toLowerCase();if(!m)return;(modProgs[m]||(modProgs[m]=new Set())).add(r.programme);});
+  const progs=[...new Set(rows.map(r=>r.programme||'—'))].sort();
+  if(!window.__catProg||!progs.includes(window.__catProg))window.__catProg=progs[0]||'';
+  const prog=window.__catProg;
+  const lvls={}; rows.filter(r=>r.programme===prog).forEach(r=>{const lv=r.nta||'—';(lvls[lv]||(lvls[lv]={I:[],II:[]}));lvls[lv][r.sem].push(r);});
+  const levelKeys=Object.keys(lvls).sort((a,b)=>ntaLevel(a)-ntaLevel(b));
+  let h=`<h2>Module Catalogue</h2><div class="note">Modules taught in each programme, grouped by <b>NTA level</b> and <b>semester</b>. A module shared by more than one programme is tagged <b>cross-cutting</b>. Edit modules on the <b>Data → Curriculum</b> tab.</div>`;
+  h+=`<div class="controls"><b>Programme:</b> <select id="catprog" style="min-width:340px">`+
+     progs.map(p=>`<option value="${esc(p)}"${p===prog?' selected':''}>${esc(progFull(p))} (${esc(p)})</option>`).join('')+`</select>`+
+     `<input type="text" id="catsearch" placeholder="Search module or code…" style="min-width:240px"></div>`;
+  const cell=(lv,sem)=>lvls[lv][sem].slice().sort((a,b)=>String(a.module).localeCompare(String(b.module))).map(m=>{
+      const cross=(modProgs[(m.module||'').trim().toLowerCase()]||new Set()).size>1;
+      return `<div data-text="${esc(((m.code||'')+' '+(m.module||'')).toLowerCase())}" style="margin-bottom:3px"><span class="small" style="color:#667;font-family:monospace">${esc(m.code||'—')}</span> ${esc(m.module||'')}${cross?' <span class="pill amber">cross-cutting</span>':''}</div>`;
+    }).join('')||'<span class="small">—</span>';
+  h+='<div class="wrap"><table id="ctbl2"><tr><th style="width:130px">NTA level</th><th>Semester I modules</th><th>Semester II modules</th></tr>';
+  levelKeys.forEach(lv=>{h+=`<tr><td style="vertical-align:top"><b>${esc(lv)}</b></td><td style="vertical-align:top">${cell(lv,'I')}</td><td style="vertical-align:top">${cell(lv,'II')}</td></tr>`;});
+  if(!levelKeys.length)h+='<tr><td colspan="3" class="small">No modules for this programme.</td></tr>';
+  $('t-catalogue').innerHTML=h+'</table></div>';
+  $('catprog').onchange=()=>{window.__catProg=$('catprog').value;R.catalogue();};
+  const cs=$('catsearch');if(cs)cs.oninput=()=>{const q=cs.value.toLowerCase();
+    document.querySelectorAll('#ctbl2 [data-text]').forEach(el=>{el.style.display=(!q||el.dataset.text.includes(q))?'':'none';});};};
 const NTAOPTS=['NTA4','NTA5','NTA6','NTA7 Y1','NTA7 Y2','NTA8','NTA9'];
 // Derive the NTA level straight from a module code: after the letters, the two
 // digits give the level (04->NTA4 … 09->NTA9); for NTA7 the next digit picks the
@@ -384,10 +401,16 @@ async function addAssign(){const c=window.__asgCtx;const prog=$('m_prog').value.
   $('m_prog').value=''; if(window.__reAsg)await window.__reAsg(); toast('Added '+prog+' · '+nta);}
 async function delAssign(id){await api(`/${SEM}/module_assign/${id}`,{method:'DELETE'}); if(window.__reAsg)await window.__reAsg(); toast('Removed');}
 R.streams=async function(){const r=await api(`/${SEM}/streams`);
-  let h=`<h2>Streams — Semester ${SEM} <span class="small">(largest room ${r.maxcap} seats; suggested = enrolment ÷ largest room)</span></h2>`;
-  h+='<div class="controls"><input type="text" id="dsearch" placeholder="Search programme…" style="min-width:260px"></div><div class="wrap"><table id="dtbl"><tr><th>Programme</th><th>NTA</th><th>Enrolment</th><th>Streams present</th><th># present</th><th>Suggested</th><th>Sessions</th></tr>';
-  h+=r.rows.map(x=>`<tr><td>${esc(x.programme)}</td><td>${esc(x.nta)}</td><td>${x.enrolment||''}</td><td>${esc(x.streams_present)}</td><td>${x.n_present}</td><td>${x.suggested}</td><td>${x.sessions}</td></tr>`).join('');
-  $('t-streams').innerHTML=h+'</table></div>'; wireSearch();};
+  const rows=r.rows; const progs=[...new Set(rows.map(x=>x.programme))].sort();
+  if(!window.__stProg||!progs.includes(window.__stProg))window.__stProg=progs[0]||'';
+  let h=`<h2>Streams — Semester ${SEM} <span class="small">(largest room ${r.maxcap} seats; suggested streams = enrolment ÷ largest room)</span></h2>`;
+  h+=`<div class="controls"><b>Programme:</b> <select id="stprog" style="min-width:340px">`+
+     progs.map(p=>`<option value="${esc(p)}"${p===window.__stProg?' selected':''}>${esc(progFull(p))} (${esc(p)})</option>`).join('')+`</select></div>`;
+  const my=rows.filter(x=>x.programme===window.__stProg).sort((a,b)=>ntaLevel(a.nta)-ntaLevel(b.nta));
+  h+='<div class="wrap"><table id="dtbl"><tr><th>NTA level</th><th>Enrolment</th><th>Suggested streams</th><th>Streams present</th><th>Sessions</th></tr>';
+  h+=my.map(x=>`<tr><td><b>${esc(x.nta)}</b></td><td>${x.enrolment||'—'}</td><td>${x.suggested||'—'}</td><td>${esc(x.streams_present||'—')} <span class="small">(${x.n_present})</span></td><td>${x.sessions}</td></tr>`).join('')||'<tr><td colspan="5" class="small">No cohorts for this programme.</td></tr>';
+  $('t-streams').innerHTML=h+'</table></div>';
+  $('stprog').onchange=()=>{window.__stProg=$('stprog').value;R.streams();};};
 R.reports=async function(){const r=await api(`/${SEM}/reports`);
   const card=(n,l,cls='')=>`<div class="card ${cls}"><div class="n">${n}</div><div class="l">${l}</div></div>`;
   let h=`<div class="controls" style="justify-content:space-between"><h2 style="border:0;margin:0">Facts &amp; Figures — Semester ${SEM}</h2><button class="btn sec noprint" onclick="window.print()">🖨 Print / Save as PDF</button></div>`;
