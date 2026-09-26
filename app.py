@@ -1002,6 +1002,32 @@ def enrolment_capture():
     con.commit()
     return jsonify(ok=True, updated=updated)
 
+@app.get("/api/<sem>/unallocated")
+def unallocated(sem):
+    """Curriculum modules (code + NTA level) that no lecturer can yet teach
+    (no matching teaching-capability row by code or by module name)."""
+    from collections import defaultdict
+    con = db()
+    tcodes = set(); tnames = set()
+    for code, module in con.execute("SELECT code, module FROM teaching"):
+        if code and code.strip(): tcodes.add(code.strip().lower())
+        if module and module.strip(): tnames.add(module.strip().lower())
+    progs = defaultdict(set)
+    for programme, code, module, nta in con.execute(
+            "SELECT DISTINCT programme, code, module, nta FROM curriculum WHERE semester=?", (sem,)):
+        progs[((code or "").strip(), (module or "").strip(), nta or "")].add(programme)
+    out = []
+    for (code, module, nta), pset in progs.items():
+        if not module:
+            continue
+        c = code.lower(); m = module.lower()
+        if (c and c in tcodes) or (m and m in tnames):
+            continue
+        out.append({"code": code, "module": module, "nta": nta,
+                    "programmes": ", ".join(sorted(p for p in pset if p))})
+    out.sort(key=lambda r: (r["nta"], r["module"].lower()))
+    return jsonify(rows=out, count=len(out))
+
 @app.get("/api/<sem>/catalogue")
 def catalogue(sem):
     from collections import defaultdict
