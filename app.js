@@ -305,7 +305,7 @@ const REFC={
   enrolment:{cols:['programme','department','nta','year','female','male','total'],sem:false,labels:['Programme','Department','NTA','Year','Female','Male','Total'],num:['total']},
 };
 let DATASUB='instructors', DATAROWS=[];
-const SUBS=[['instructors','Instructors & qualifications'],['teaching','Teaching capability'],['venues','Venues'],
+const SUBS=[['instructors','Instructors & qualifications'],['teaching','Teaching capability'],['unallocated','Modules to allocate'],['venues','Venues'],
   ['curriculum','Curriculum'],['enrolment','Enrolment']];
 R.data=function(){
   let h=`<h2>Data entry — Semester ${SEM}</h2>`;
@@ -455,6 +455,35 @@ function exportReport(name){const tbl=$('rep_'+name);if(!tbl)return;const csv=[]
   tbl.querySelectorAll('tr').forEach(tr=>{csv.push([...tr.children].map(td=>'"'+td.textContent.replace(/"/g,'""')+'"').join(','));});
   dl(csv.join('\n'),'CBE_'+name+'_Sem'+SEM+'.csv','text/csv');}
 let TINSTRROWS=[], TEACHROWS=[];
+async function renderUnallocated(){
+  const p=$('datapanel');
+  const [u,ins]=await Promise.all([api('/'+SEM+'/unallocated'),api('/ref/instructors')]);
+  const names=ins.rows.map(r=>r.name).sort();
+  window.__unalloc=u.rows; window.__allocNames=names; window.__allocSel={};
+  let h='<div class="note">Modules in the <b>Semester '+SEM+'</b> curriculum that <b>no lecturer can yet teach</b>. Type one or more lecturers into the box (they appear as tags), then click <b>Allocate</b> — the module is added to each chosen lecturer\'s teaching capability (with its code and NTA level) and drops off this list.</div>';
+  h+='<div class="controls"><input type="text" id="usearch" placeholder="Search module or code…" style="min-width:260px"><span class="small">'+u.rows.length+' module(s) to allocate</span></div>';
+  h+='<datalist id="lecdl">'+names.map(n=>`<option value="${esc(n)}"></option>`).join('')+'</datalist>';
+  h+='<div class="wrap"><table id="utbl"><tr><th>NTA level</th><th>Code</th><th>Module</th><th>Programmes</th><th>Allocate to lecturer(s)</th><th></th></tr>';
+  h+=u.rows.map((x,i)=>`<tr data-text="${esc(((x.code||'')+' '+(x.module||'')).toLowerCase())}"><td>${esc(x.nta||'—')}</td><td>${esc(x.code||'—')}</td><td>${esc(x.module||'')}</td><td class="small">${esc(x.programmes||'')}</td>`+
+     `<td><input list="lecdl" id="uadd_${i}" placeholder="type a name…" style="width:160px" onchange="allocPick(${i})"> <span id="uchips_${i}"></span></td>`+
+     `<td><button class="btn small" onclick="allocMod(${i})">Allocate</button></td></tr>`).join('')||'<tr><td colspan="6" class="small">🎉 Every curriculum module already has at least one capable lecturer.</td></tr>';
+  p.innerHTML=h+'</table></div>';
+  const se=$('usearch');if(se)se.oninput=()=>{const q=se.value.toLowerCase();document.querySelectorAll('#utbl tr[data-text]').forEach(tr=>{tr.style.display=(!q||tr.dataset.text.includes(q))?'':'none';});};
+}
+function allocChips(i){const arr=(window.__allocSel&&window.__allocSel[i])||[];const el=$('uchips_'+i);if(!el)return;
+  el.innerHTML=arr.map((n,j)=>`<span style="display:inline-block;background:#e7edf7;border-radius:10px;padding:1px 8px;margin:2px;font-size:12px">${esc(n)} <b style="color:#a00;cursor:pointer" onclick="removeAlloc(${i},${j})">✕</b></span>`).join('');}
+function removeAlloc(i,j){if(window.__allocSel&&window.__allocSel[i]){window.__allocSel[i].splice(j,1);allocChips(i);}}
+function allocPick(i){const inp=$('uadd_'+i);if(!inp)return;const n=inp.value.trim();inp.value='';if(!n)return;
+  window.__allocSel=window.__allocSel||{}; window.__allocSel[i]=window.__allocSel[i]||[];
+  if(!(window.__allocNames||[]).includes(n)){toast('\''+n+'\' is not in the lecturer list — pick from the suggestions.');return;}
+  if(!window.__allocSel[i].includes(n))window.__allocSel[i].push(n); allocChips(i);}
+async function allocMod(i){const x=(window.__unalloc||[])[i];if(!x)return;
+  const inp=$('uadd_'+i); if(inp&&inp.value.trim())allocPick(i);
+  const chosen=(window.__allocSel&&window.__allocSel[i])||[];
+  if(!chosen.length){alert('Add one or more lecturers first (type a name and pick it).');return;}
+  for(const instr of chosen){try{await api('/ref/teaching',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instructor:instr,code:x.code||'',module:x.module||'',nta:x.nta||'',sem:SEM})});}catch(e){}}
+  toast('Allocated “'+x.module+'” to '+chosen.length+' lecturer'+(chosen.length>1?'s':''));renderUnallocated();
+}
 async function renderTeaching(){
   const p=$('datapanel');
   const [ins,mods,teach]=await Promise.all([api('/ref/instructors'),api('/modules'),api('/ref/teaching')]);
@@ -747,6 +776,7 @@ function progModal(){
 async function renderDataPanel(){
   const p=$('datapanel');
   if(DATASUB==='teaching')return renderTeaching();
+  if(DATASUB==='unallocated')return renderUnallocated();
   if(DATASUB==='enrolment')return renderEnrolment();
   if(DATASUB==='curriculum')return renderCurriculum();
   const cfg=REFC[DATASUB]; const q=cfg.sem?`?sem=${SEM}`:'';
