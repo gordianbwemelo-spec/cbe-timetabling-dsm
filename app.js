@@ -210,7 +210,7 @@ R.instr=function(){
     $('isel').innerHTML=opts(filtered.length?filtered:names); draw();};
   draw();
 };
-function baseProgs(p){p=(p||'').replace(/\(STRM[^)]*\)/gi,'');
+function baseProgs(p){p=(p||'').replace(/\([^)]*\)/g,'');
   return [...new Set(p.split(/[+,]/).map(s=>s.replace(/\s+/g,' ').trim().replace(/^,+|,+$/g,'')).filter(Boolean))];}
 R.progtt=function(){const all=S();
   const set=new Set(); all.forEach(s=>baseProgs(s.prog).forEach(p=>set.add(p)));
