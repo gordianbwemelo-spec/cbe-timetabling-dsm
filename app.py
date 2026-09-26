@@ -160,7 +160,7 @@ def base_programmes(prog):
     """Turn a timetable cohort label (which may combine programmes and streams,
     e.g. 'ACC(STRM A)+AF(STRM A)') into a clean list of base programme names
     without any stream indication: ['ACC', 'AF']."""
-    p = re.sub(r"\(STRM[^)]*\)", "", prog or "", flags=re.I)
+    p = re.sub(r"\([^)]*\)", "", prog or "")
     out = []
     for part in re.split(r"[+,]", p):
         part = re.sub(r"\s+", " ", part).strip(" ,")
@@ -280,6 +280,7 @@ def instructors():
         out[r["name"]] = {"dept": r["dept"], "qual": r["qual"], "is_phd": bool(r["is_phd"]),
                           "matched": bool(r["matched"]),
                           "status": (r["status"] if "status" in k else "On duty") or "On duty",
+                          "position": (r["position"] if "position" in k else "") or "",
                           "module_limit": (r["module_limit"] if "module_limit" in k else "") or "",
                           "avail_days": (r["avail_days"] if "avail_days" in k else "") or "",
                           "avail_periods": (r["avail_periods"] if "avail_periods" in k else "") or ""}
@@ -1138,7 +1139,19 @@ def generate_tt(sem):
     cur = [dict(r) for r in db().execute("SELECT programme, nta, code, module FROM curriculum WHERE semester=?", (sem,))]
     enr = [dict(r) for r in db().execute("SELECT programme, nta, total, evening FROM enrolment")]
     teach = [dict(r) for r in db().execute("SELECT instructor, code, module, nta FROM teaching")]
-    result = generator.generate(sem, venues(sem), instructors(), teach, cur, enr, get_settings())
+    # Semester-independent room capacities (largest room across ALL semesters) so
+    # stream counts are identical in Semester I and II. Placement still uses this
+    # semester's own rooms.
+    allv = [dict(r) for r in db().execute("SELECT venue, capacity, is_lab FROM venues")]
+    def _pg9(vn):
+        vn = vn or ""
+        return vn in ("BTA", "BTB", "BTC", "BLOCK E") or vn.startswith("B2-5")
+    _hall = [v["capacity"] for v in allv if not v["is_lab"]]
+    _pg = [v["capacity"] for v in allv if _pg9(v["venue"])]
+    st = {**get_settings(),
+          "_hall_cap": max(_hall) if _hall else 0,
+          "_pg_cap": max(_pg) if _pg else 0}
+    result = generator.generate(sem, venues(sem), instructors(), teach, cur, enr, st)
     # write generated sessions in place of the current ones for this semester
     db().execute("DELETE FROM sessions WHERE semester=?", (sem,))
     cols = ",".join(SESSION_FIELDS); qs = ",".join("?" * len(SESSION_FIELDS))
