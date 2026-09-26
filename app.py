@@ -870,6 +870,21 @@ def module_assign_del(sem, rid):
     db().execute("DELETE FROM curriculum WHERE rowid=? AND semester=?", (rid, sem)); db().commit()
     return jsonify(ok=True)
 
+@app.post("/api/programmes/rename")
+def programmes_rename():
+    """Rename a programme label everywhere it is used as reference data:
+    curriculum and enrolment (and any single-programme session rows)."""
+    b = request.get_json(force=True)
+    old = (b.get("old") or "").strip(); new = (b.get("new") or "").strip()
+    if not old or not new or old == new:
+        return jsonify(ok=False, error="need distinct old and new"), 400
+    con = db()
+    con.execute("UPDATE curriculum SET programme=? WHERE programme=?", (new, old))
+    con.execute("UPDATE enrolment SET programme=? WHERE programme=?", (new, old))
+    con.execute("UPDATE sessions SET prog=? WHERE prog=?", (new, old))
+    con.commit()
+    return jsonify(ok=True)
+
 @app.get("/api/instructor_names")
 def instructor_names():
     """Every instructor name in use — from the instructor records AND from the
