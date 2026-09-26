@@ -647,7 +647,7 @@ async function renderCurriculum(){
   const missing=NTAOPTS.filter(l=>!lvls[l]);
   let h='<div class="note">Choose a <b>programme</b>, then for each <b>NTA level</b> edit its <b>Semester I</b> and <b>Semester II</b> modules side by side. Codes and names are editable; use <b>+ Add module</b> or <b>✕</b> to add/remove, the NTA-level dropdown to change a level, <b>Drop</b> to remove a level that does not apply, or <b>+ Add NTA level</b>. Changes save immediately.</div>';
   h+=`<div class="controls"><b>Programme:</b> <select id="currprogsel" style="min-width:340px">`+
-     progs.map(pr=>`<option value="${esc(pr)}"${pr===prog?' selected':''}>${esc(progLabel(pr))}</option>`).join('')+`</select> <button class="btn" onclick="currAddProgramme()">+ Add programme</button> <button class="btn sec" onclick="currRenameProgramme()">✎ Rename</button>`;
+     progs.map(pr=>`<option value="${esc(pr)}"${pr===prog?' selected':''}>${esc(progLabel(pr))}</option>`).join('')+`</select> <button class="btn" onclick="currAddProgramme()">+ Add programme</button> <button class="btn sec" onclick="currRenameProgramme()">✎ Rename</button> <button class="btn sec" onclick="findDupModules()">🔎 Find &amp; merge duplicate modules</button>`;
   if(missing.length)h+=` <select id="curraddlvl" style="font-size:12px"><option value="">+ Add NTA level…</option>`+missing.map(l=>`<option value="${l}">${l}</option>`).join('')+`</select>`;
   h+=`<button class="btn sec" onclick="exportCurriculum('doc')">⬇ Word</button><button class="btn sec" onclick="exportCurriculum('csv')">⬇ CSV</button><span class="small">${levelKeys.length} NTA level(s)</span></div>`;
   const cell=(lv,sem)=>{
@@ -807,6 +807,40 @@ function lev(a,b){const m=a.length,n=b.length;if(!m)return n;if(!n)return m;let 
   for(let i=1;i<=m;i++){let prev=p[0];p[0]=i;for(let j=1;j<=n;j++){const t=p[j];p[j]=Math.min(p[j]+1,p[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=t;}}return p[n];}
 // two names are "the same person" if, ignoring titles, they're identical, one
 // contains the other, or they're within a couple of typos of each other.
+function normMod(m){return (m||'').toUpperCase().replace(/&/g,' AND ').replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
+function sameMod(a,b){const na=normMod(a),nb=normMod(b);if(!na||!nb)return false;
+  if(na===nb)return true;
+  if(na.length>=8&&nb.length>=8&&(na.includes(nb)||nb.includes(na)))return true;
+  if(Math.abs(na.length-nb.length)>3)return false;
+  const d=lev(na,nb),L=Math.max(na.length,nb.length);
+  return d<=2 || (L>=12 && d<=Math.round(L*0.12));}
+async function findDupModules(){
+  let mods; try{mods=(await api('/module_names')).modules||[];}catch(e){alert('Could not load modules: '+e.message);return;}
+  const items=mods.filter(m=>m.module&&m.module.trim());
+  const parent=items.map((_,i)=>i); const find=x=>{while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];}return x;};
+  for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){
+    const ci=(items[i].code||'').trim().toLowerCase(), cj=(items[j].code||'').trim().toLowerCase();
+    if((ci&&ci===cj)||sameMod(items[i].module,items[j].module))parent[find(i)]=find(j);
+  }
+  const byRoot={}; items.forEach((m,i)=>{const r=find(i);(byRoot[r]||(byRoot[r]=[])).push(m);});
+  const groups=Object.values(byRoot).filter(g=>{const k=new Set(g.map(x=>(x.code||'').toLowerCase()+'|'+x.module.toLowerCase()));return k.size>1;});
+  window.__dupMods=groups;
+  if(!groups.length){alert('No duplicate modules found.');return;}
+  let h='<h3>Possible duplicate modules</h3><div class="small" style="margin-bottom:6px">Pick the correct <b>code + name</b> to keep in each group, then Merge. Merging renames every matching module (in Curriculum, Teaching capability and the timetable) to the kept code and name, so the same module is not duplicated.</div>';
+  groups.forEach((g,i)=>{const def=g.map((m,j)=>[j,(m.code?1:0),(m.module||'').length]).sort((a,b)=>b[1]-a[1]||b[2]-a[2])[0][0];
+    h+='<div style="margin:8px 0;padding:8px;border:1px solid #dbe2ef;border-radius:6px">Keep: <select id="dmk_'+i+'">'+g.map((m,j)=>`<option value="${j}"${j===def?' selected':''}>${esc((m.code||'—')+'  —  '+m.module)}</option>`).join('')+'</select> '+
+       '<button class="btn small" onclick="mergeDupMod('+i+')">Merge these '+g.length+'</button>'+
+       '<div class="small" style="margin-top:4px;color:#555">'+g.map(m=>esc((m.code||'—')+' '+m.module)).join('  ·  ')+'</div></div>';});
+  h+='<div style="text-align:right;margin-top:8px"><button class="btn sec" onclick="closeModal()">Close</button></div>';
+  $('modal').innerHTML=h;$('overlay').classList.add('show');
+}
+async function mergeDupMod(i){const g=(window.__dupMods||[])[i]; if(!g)return;
+  const ki=+($('dmk_'+i).value||0); const keep=g[ki]; const drop=g.filter((m,j)=>j!==ki);
+  if(!drop.length){alert('Nothing to merge.');return;}
+  if(!confirm('Merge '+drop.length+' variant(s) into:\n'+((keep.code||'')+'  '+keep.module)+' ?'))return;
+  try{await api('/modules/merge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keep:{code:keep.code||'',module:keep.module},drop:drop.map(m=>({code:m.code||'',module:m.module}))})});}catch(e){alert('Merge failed: '+e.message);return;}
+  toast('Modules merged'); closeModal(); await loadData(); renderCurriculum();
+}
 function sameInstr(a,b){const na=normNm(a),nb=normNm(b);if(!na||!nb)return false;
   if(na===nb)return true;
   if(na.length>=6&&nb.length>=6&&(na.includes(nb)||nb.includes(na)))return true;
