@@ -942,6 +942,42 @@ def instructor_names():
     names |= set(r[0] for r in con.execute("SELECT DISTINCT instr FROM sessions WHERE IFNULL(instr,'')!=''"))
     return jsonify(names=sorted(names))
 
+@app.get("/api/module_names")
+def module_names():
+    """Distinct (code, module) pairs in the curriculum — used to find
+    duplicate modules and reconcile their codes."""
+    con = db()
+    seen=set(); out=[]
+    for code, module in con.execute("SELECT DISTINCT code, module FROM curriculum WHERE IFNULL(module,'')!=''"):
+        m=(module or "").strip()
+        if not m or m.lower()=="new module": continue
+        key=((code or "").strip().lower(), m.lower())
+        if key in seen: continue
+        seen.add(key); out.append({"code":(code or "").strip(), "module":m})
+    return jsonify(modules=out)
+
+@app.post("/api/modules/merge")
+def modules_merge():
+    """Merge duplicate modules into one canonical code+name across
+    curriculum, teaching capability and the timetable."""
+    b = request.get_json(force=True)
+    keep = b.get("keep") or {}
+    kc = (keep.get("code") or "").strip(); km = (keep.get("module") or "").strip()
+    drops = b.get("drop") or []
+    if not km or not drops:
+        return jsonify(ok=False, error="need keep.module and drop"), 400
+    con = db(); n = 0
+    for d in drops:
+        dc = (d.get("code") or "").strip(); dm = (d.get("module") or "").strip()
+        if not dm or (dc == kc and dm == km):
+            continue
+        con.execute("UPDATE curriculum SET code=?, module=? WHERE lower(IFNULL(module,''))=lower(?) OR (?<>'' AND lower(IFNULL(code,''))=lower(?))", (kc, km, dm, dc, dc))
+        con.execute("UPDATE teaching   SET code=?, module=? WHERE lower(IFNULL(module,''))=lower(?) OR (?<>'' AND lower(IFNULL(code,''))=lower(?))", (kc, km, dm, dc, dc))
+        con.execute("UPDATE sessions   SET code=?, mod=?    WHERE lower(IFNULL(mod,''))=lower(?)    OR (?<>'' AND lower(IFNULL(code,''))=lower(?))", (kc, km, dm, dc, dc))
+        n += 1
+    con.commit()
+    return jsonify(ok=True, merged=n)
+
 @app.post("/api/instructors/merge")
 def instructors_merge():
     """Merge duplicate instructors: reassign their teaching capability and any
