@@ -1148,6 +1148,8 @@ def generate_tt(sem):
         return vn in ("BTA", "BTB", "BTC", "BLOCK E") or vn.startswith("B2-5")
     _hall = [v["capacity"] for v in allv if not v["is_lab"]]
     _pg = [v["capacity"] for v in allv if _pg9(v["venue"])]
+    allv2 = [dict(r) for r in db().execute("SELECT capacity, is_lab, premises FROM venues")]
+    _saba = [v["capacity"] for v in allv2 if not v["is_lab"] and "saba" in (v["premises"] or "").lower()]
     # Saba Saba premises serve ONLY these programmes (Marketing, Business
     # Administration, Procurement & Supply Chain, Marketing in Tourism & Events)
     # at NTA 4/5/6. Match by full programme name so code variants still resolve.
@@ -1161,6 +1163,7 @@ def generate_tt(sem):
     st = {**get_settings(),
           "_hall_cap": max(_hall) if _hall else 0,
           "_pg_cap": max(_pg) if _pg else 0,
+          "_saba_cap": max(_saba) if _saba else 0,
           "_saba_progs": "|".join(sorted(saba_progs))}
     result = generator.generate(sem, venues(sem), instructors(), teach, cur, enr, st)
     # write generated sessions in place of the current ones for this semester
