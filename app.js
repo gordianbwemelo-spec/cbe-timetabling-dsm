@@ -597,7 +597,7 @@ async function renderCurriculum(){
   const missing=NTAOPTS.filter(l=>!lvls[l]);
   let h='<div class="note">Choose a <b>programme</b>, then for each <b>NTA level</b> edit its <b>Semester I</b> and <b>Semester II</b> modules side by side. Codes and names are editable; use <b>+ Add module</b> or <b>✕</b> to add/remove, the NTA-level dropdown to change a level, <b>Drop</b> to remove a level that does not apply, or <b>+ Add NTA level</b>. Changes save immediately.</div>';
   h+=`<div class="controls"><b>Programme:</b> <select id="currprogsel" style="min-width:340px">`+
-     progs.map(pr=>`<option value="${esc(pr)}"${pr===prog?' selected':''}>${esc(progFull(pr))} (${esc(pr)})</option>`).join('')+`</select>`;
+     progs.map(pr=>`<option value="${esc(pr)}"${pr===prog?' selected':''}>${esc(progFull(pr))} (${esc(pr)})</option>`).join('')+`</select> <button class="btn" onclick="currAddProgramme()">+ Add programme</button> <button class="btn sec" onclick="currRenameProgramme()">✎ Rename</button>`;
   if(missing.length)h+=` <select id="curraddlvl" style="font-size:12px"><option value="">+ Add NTA level…</option>`+missing.map(l=>`<option value="${l}">${l}</option>`).join('')+`</select>`;
   h+=`<button class="btn sec" onclick="exportCurriculum('doc')">⬇ Word</button><button class="btn sec" onclick="exportCurriculum('csv')">⬇ CSV</button><span class="small">${levelKeys.length} NTA level(s)</span></div>`;
   const cell=(lv,sem)=>{
@@ -633,6 +633,22 @@ async function currSet(id,field,value){
   await api('/ref/curriculum/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({programme:r.programme,nta:r.nta,code:r.code||'',module:r.module||'',credit:r.credit||'',cls:r.cls||'',sem:r.sem})});
   toast('Saved');
+}
+async function currRenameProgramme(){
+  const cur=window.__currProg; if(!cur)return;
+  const nw=(prompt('Rename this programme. This updates it in Curriculum and Enrolment. Enter the new programme code/name:',cur)||'').trim();
+  if(!nw||nw===cur)return;
+  const clash=(CURRROWS||[]).some(r=>(r.programme||'').toLowerCase()===nw.toLowerCase());
+  if(clash&&!confirm('A programme "'+nw+'" already exists. Merge this one into it?'))return;
+  try{await api('/programmes/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:cur,new:nw})});}catch(e){alert('Rename failed: '+e.message);return;}
+  window.__currProg=nw; toast('Programme renamed to '+nw); renderCurriculum();
+}
+async function currAddProgramme(){
+  const code=(prompt('Enter the new programme code (e.g. ACC, MET, BA, MBA-MKTM):','')||'').trim();
+  if(!code)return;
+  if((CURRROWS||[]).some(r=>(r.programme||'').toLowerCase()===code.toLowerCase())){window.__currProg=code;alert('That programme already exists — opening it.');renderCurriculum();return;}
+  try{await api('/ref/curriculum',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({programme:code,nta:'NTA4',code:'',module:'New module',credit:'',cls:'',sem:'I'})});}catch(e){alert('Could not add: '+e.message);return;}
+  window.__currProg=code; toast('Programme '+code+' added — add its NTA levels and modules'); renderCurriculum();
 }
 function exportCurriculum(fmt){
   const prog=window.__currProg;
