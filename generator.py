@@ -377,16 +377,14 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                     rooms = [v for v in V
                              if (v["venue"], day, t) not in vbusy
                              and venue_ok(v, size, nta, mod, code, t)
-                             and (not _is_saba(v["premises"]) or saba_home)
+                             and (_is_saba(v["premises"]) if saba_home else not _is_saba(v["premises"]))
                              and travel_ok(instr, day, t, v["premises"])]
                     if not rooms:
                         continue
                     it_mod = is_it(nta, mod, code)
-                    # IT prefers a lab; Saba programmes prefer their Saba rooms;
-                    # then spread across rooms (fewest days used so far) so no venue
-                    # sits idle all week; then least wasted seats.
+                    # IT prefers a lab; then spread across rooms (fewest days used
+                    # so far) so no venue sits idle all week; then least wasted seats.
                     rooms.sort(key=lambda v: (0 if (it_mod and v["is_lab"]) else 1,
-                                              0 if (saba_home and _is_saba(v["premises"])) else 1,
                                               len(vdays[v["venue"]]), v["capacity"]))
                     v = rooms[0]
                     placed.append((day, t, v)); used_days.add(day); break
