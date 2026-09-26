@@ -1136,8 +1136,8 @@ def generate_tt(sem):
     if sem not in ("I", "II"):
         return jsonify(error="bad semester"), 404
     cur = [dict(r) for r in db().execute("SELECT programme, nta, code, module FROM curriculum WHERE semester=?", (sem,))]
-    enr = [dict(r) for r in db().execute("SELECT programme, nta, total FROM enrolment")]
-    teach = [dict(r) for r in db().execute("SELECT instructor, code, module FROM teaching")]
+    enr = [dict(r) for r in db().execute("SELECT programme, nta, total, evening FROM enrolment")]
+    teach = [dict(r) for r in db().execute("SELECT instructor, code, module, nta FROM teaching")]
     result = generator.generate(sem, venues(sem), instructors(), teach, cur, enr, get_settings())
     # write generated sessions in place of the current ones for this semester
     db().execute("DELETE FROM sessions WHERE semester=?", (sem,))
