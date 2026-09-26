@@ -165,6 +165,19 @@ function openEdit(id){CONFIRMED=false;const s=id==null?{day:'Mon',t:7,venue:VENS
 function closeModal(){$('overlay').classList.remove('show');}
 document.addEventListener('click',e=>{if(e.target&&e.target.id==='overlay')closeModal();});
 
+function exportStaffAll(fmt){
+  const D0=(D&&D.instructors)||{};
+  const rows=Object.keys(D0).sort().map(n=>Object.assign({name:n},D0[n]));
+  const cols=['#','Name','Department','Qualification','Position','Status','Module limit'];
+  const data=rows.map((x,i)=>[i+1,x.name||'',x.dept||'',x.qual||'',x.position||'',x.status||'',x.module_limit||'']);
+  const title='CBE — List of Staff (All departments) — '+rows.length+' staff';
+  if(fmt==='csv'){const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+    dl([cols.map(q).join(',')].concat(data.map(r=>r.map(q).join(','))).join('\n'),'CBE_Staff_All.csv','text/csv');
+  } else {let h='<html><head><meta charset="utf-8"></head><body><h2>'+esc(title)+'</h2>';
+    h+='<table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif"><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr>';
+    h+=data.map(r=>'<tr>'+r.map(c=>'<td>'+esc(String(c))+'</td>').join('')+'</tr>').join('');
+    h+='</table></body></html>'; dl(h,'CBE_Staff_All.doc','application/msword');}
+}
 R.instr=function(){
   // every instructor from the shared master list (same in both semesters), plus
   // anyone who appears in this semester's sessions (e.g. an ad-hoc part-timer).
@@ -173,7 +186,10 @@ R.instr=function(){
   const opts=list=>list.map(n=>`<option${n===window.__isel?' selected':''}>${esc(n)}</option>`).join('');
   let h=`<h2>Instructor Timetable — Semester ${SEM}</h2><div class="controls">`+
     `Search: <input type="text" id="isearch" placeholder="Type a name…" style="min-width:220px"> `+
-    `Instructor: <select id="isel">`+opts(names)+`</select> <span class="small">${names.length} instructors</span></div><div id="ig" class="wrap"></div>`;
+    `Instructor: <select id="isel">`+opts(names)+`</select> `+
+    `<button class="btn sec" onclick="exportStaffAll('doc')">⬇ Staff list (Word)</button>`+
+    `<button class="btn sec" onclick="exportStaffAll('csv')">⬇ CSV</button> `+
+    `<span class="small">${names.length} instructors</span></div><div id="ig" class="wrap"></div>`;
   $('t-instr').innerHTML=h;
   const draw=()=>{const n=window.__isel;const all=S();
     let g='<table class="grid"><tr><th>Day</th>'+PERIODS.map(p=>`<th>${p}</th>`).join('')+'</tr>';
@@ -302,7 +318,7 @@ R.data=function(){
 function dataSub(k){DATASUB=k;R.data();}
 R.catalogue=async function(){
   const [ri,rii]=await Promise.all([api('/ref/curriculum?sem=I'),api('/ref/curriculum?sem=II')]);
-  const rows=[...ri.rows.map(r=>Object.assign({},r,{sem:'I'})),...rii.rows.map(r=>Object.assign({},r,{sem:'II'}))];
+  const rows=[...ri.rows.map(r=>Object.assign({},r,{sem:'I'})),...rii.rows.map(r=>Object.assign({},r,{sem:'II'}))]; window.__catRows=rows;
   // a module taught in more than one programme is "cross-cutting"
   const modProgs={}; rows.forEach(r=>{const m=(r.module||'').trim().toLowerCase();if(!m)return;(modProgs[m]||(modProgs[m]=new Set())).add(r.programme);});
   const progs=[...new Set(rows.map(r=>r.programme||'—'))].sort();
@@ -313,7 +329,9 @@ R.catalogue=async function(){
   let h=`<h2>Module Catalogue</h2><div class="note">Modules taught in each programme, grouped by <b>NTA level</b> and <b>semester</b>. A module shared by more than one programme is tagged <b>cross-cutting</b>. Edit modules on the <b>Data → Curriculum</b> tab.</div>`;
   h+=`<div class="controls"><b>Programme:</b> <select id="catprog" style="min-width:340px">`+
      progs.map(p=>`<option value="${esc(p)}"${p===prog?' selected':''}>${esc(progFull(p))} (${esc(p)})</option>`).join('')+`</select>`+
-     `<input type="text" id="catsearch" placeholder="Search module or code…" style="min-width:240px"></div>`;
+     `<input type="text" id="catsearch" placeholder="Search module or code…" style="min-width:240px">`+
+     `<button class="btn sec" onclick="exportCurriculum('doc',window.__catProg,window.__catRows)">⬇ Word</button>`+
+     `<button class="btn sec" onclick="exportCurriculum('csv',window.__catProg,window.__catRows)">⬇ CSV</button></div>`;
   const cell=(lv,sem)=>lvls[lv][sem].slice().sort((a,b)=>String(a.module).localeCompare(String(b.module))).map(m=>{
       const cross=(modProgs[(m.module||'').trim().toLowerCase()]||new Set()).size>1;
       return `<div data-text="${esc(((m.code||'')+' '+(m.module||'')).toLowerCase())}" style="margin-bottom:3px"><span class="small" style="color:#667;font-family:monospace">${esc(m.code||'—')}</span> ${esc(m.module||'')}${cross?' <span class="pill amber">cross-cutting</span>':''}</div>`;
@@ -650,9 +668,9 @@ async function currAddProgramme(){
   try{await api('/ref/curriculum',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({programme:code,nta:'NTA4',code:'',module:'New module',credit:'',cls:'',sem:'I'})});}catch(e){alert('Could not add: '+e.message);return;}
   window.__currProg=code; toast('Programme '+code+' added — add its NTA levels and modules'); renderCurriculum();
 }
-function exportCurriculum(fmt){
-  const prog=window.__currProg;
-  const lvls={}; (CURRROWS||[]).filter(r=>r.programme===prog).forEach(r=>{const lv=r.nta||'—';(lvls[lv]||(lvls[lv]={I:[],II:[]}));lvls[lv][r.sem].push(r);});
+function exportCurriculum(fmt,prog,rows){
+  prog=prog||window.__currProg; rows=rows||CURRROWS||[];
+  const lvls={}; rows.filter(r=>r.programme===prog).forEach(r=>{const lv=r.nta||'—';(lvls[lv]||(lvls[lv]={I:[],II:[]}));lvls[lv][r.sem].push(r);});
   const keys=Object.keys(lvls).sort((a,b)=>ntaLevel(a)-ntaLevel(b));
   const items=(lv,sem)=>lvls[lv][sem].slice().sort((a,b)=>String(a.module).localeCompare(String(b.module))).map(m=>((m.code||'')+' '+(m.module||'')).trim());
   const fbase='CBE_Curriculum_'+String(prog).replace(/[^A-Za-z0-9]+/g,'_');
