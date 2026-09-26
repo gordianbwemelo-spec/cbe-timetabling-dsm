@@ -67,6 +67,11 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     # semester's actual rooms.
     sz_hall = sget("_hall_cap", 0) or largest_hall
     sz_pg = sget("_pg_cap", 0) or largest_pg
+    # Saba Saba halls are smaller than the Main lecture theatres, so Saba-side
+    # classes must be sized and merged to fit a SABA room, not the biggest Main one.
+    _saba_halls = [v["capacity"] for v in venues if _is_saba(v.get("premises")) and not v["is_lab"]]
+    largest_saba = max(_saba_halls) if _saba_halls else 0
+    sz_saba = sget("_saba_cap", 0) or largest_saba or sz_hall
     try:
         user_cap = int(settings.get("max_stream_size"))
     except (TypeError, ValueError):
@@ -211,7 +216,8 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                 units.append({"prog": prog, "nta": nta, "stream": "", "evening": False,
                               "size": largest_hall, "mods": mods, "_flag": flags_no})
                 continue
-        room_max = sz_pg if nta9 else sz_hall
+        prog_saba = saba_progs is not None and _lvl(nta) in SABA_LEVELS and prog in saba_progs
+        room_max = sz_saba if prog_saba else (sz_pg if nta9 else sz_hall)
         target = room_max if user_cap <= 0 else min(user_cap, room_max)
         target = max(1, target)
         for (evening, headcount) in subs:
@@ -265,11 +271,12 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     total_pairs = 0
     for (nta, mkey), ds in sorted(demand.items()):
         nta9 = "NTA9" in (nta or "")
-        cap = (sz_pg if nta9 else sz_hall) + tol
+        cap_main = (sz_pg if nta9 else sz_hall) + tol
+        cap_saba = sz_saba + tol
         total_pairs += len(ds)
         rep = next((d for d in ds if d["code"]), ds[0])
 
-        def pack(items, side):
+        def pack(items, side, cap):
             # Cross-cutting merge WITHIN one premises side and mode: day stays day,
             # evening stays evening. Saba-side and Main-side are never merged
             # together (Main programmes cannot sit in Saba rooms), so the Saba
@@ -289,8 +296,8 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                                    "size": b["size"], "members": [d["u"] for d in b["members"]],
                                    "side": side})
 
-        pack([d for d in ds if is_saba_side(d["u"], nta)], "saba")
-        pack([d for d in ds if not is_saba_side(d["u"], nta)], "main")
+        pack([d for d in ds if is_saba_side(d["u"], nta)], "saba", cap_saba)
+        pack([d for d in ds if not is_saba_side(d["u"], nta)], "main", cap_main)
 
     # ---- 3. Schedule each group ONCE (one lecturer, one room, 2 sessions) -----
     vbusy, sbusy = set(), set()
