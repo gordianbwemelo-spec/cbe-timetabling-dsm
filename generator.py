@@ -73,6 +73,12 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     cap_eve = sget("evening_cap", 20)
     DAYS = [d.strip() for d in (settings.get("days") or "Mon,Tue,Wed,Thu,Fri,Sat").split(",") if d.strip()]
 
+    # Saba Saba premises serve ONLY certain programmes at NTA 4/5/6 (the caller
+    # passes the allowed programme list). If the key is absent, no such restriction.
+    _saba_raw = settings.get("_saba_progs")
+    saba_progs = None if _saba_raw is None else {p for p in str(_saba_raw).split("|") if p}
+    SABA_LEVELS = {"4", "5", "6"}
+
     V = list(venues)
 
     def _lvl(x):
@@ -278,6 +284,7 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     vbusy, sbusy = set(), set()
     ibusy = set()
     iplaced = defaultdict(list)
+    vdays = defaultdict(set)   # venue -> {days used}, to spread load and avoid idle rooms
     iday, ieve, imod = defaultdict(int), defaultdict(int), defaultdict(set)
 
     def travel_ok(instr, day, t, P):
@@ -293,6 +300,10 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
         evening = g["evening"]; size = g["size"]; members = g["members"]
         gkey = (nta, (code or "").strip().lower() or ("m:" + (mod or "").strip().lower()))
         cand = sorted(eligible(nta, mod, code), key=rank)
+        if saba_progs is None:
+            grp_saba_ok = True
+        else:
+            grp_saba_ok = (_lvl(nta) in SABA_LEVELS) and all(u["prog"] in saba_progs for u in members)
         done = False
         for instr in cand:
             new_mod = gkey not in imod[instr]
@@ -346,11 +357,15 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                     rooms = [v for v in V
                              if (v["venue"], day, t) not in vbusy
                              and venue_ok(v, size, nta, mod, code, t)
+                             and (v["premises"] != "Saba" or grp_saba_ok)
                              and travel_ok(instr, day, t, v["premises"])]
                     if not rooms:
                         continue
                     it_mod = is_it(nta, mod, code)
-                    rooms.sort(key=lambda v: (0 if (it_mod and v["is_lab"]) else 1, v["capacity"]))
+                    # IT prefers a lab; then spread across rooms (fewest days used
+                    # so far) so no venue sits idle all week; then least wasted seats.
+                    rooms.sort(key=lambda v: (0 if (it_mod and v["is_lab"]) else 1,
+                                              len(vdays[v["venue"]]), v["capacity"]))
                     v = rooms[0]
                     placed.append((day, t, v)); used_days.add(day); break
             if len(placed) == 2:
@@ -363,6 +378,7 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                     stream_lbl, occ = "", size
                 for (day, t, v) in placed:
                     vbusy.add((v["venue"], day, t))
+                    vdays[v["venue"]].add(day)
                     ibusy.add((instr, day, t))
                     iplaced[instr].append((day, t, v["premises"]))
                     for u in members:
