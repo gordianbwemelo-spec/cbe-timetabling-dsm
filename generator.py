@@ -341,8 +341,12 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                     return (min((abs(t - x) for x in _ex), default=0), t)
 
                 for t in sorted(ALL_T, key=slot_pen):
-                    if evening and not (day == "Sat" or t in EVE):
-                        continue
+                    if evening:
+                        if not (day == "Sat" or t in EVE):
+                            continue  # evening cohort: weekday evenings only, Saturday all day
+                    else:
+                        if t in EVE or day == "Sat":
+                            continue  # full-time cohort: Mon-Fri 07:00-17:00 only (never evening/Saturday)
                     if apers and t not in apers:
                         continue
                     if (instr, day, t) in ibusy:
