@@ -828,12 +828,13 @@ async function findDupModules(){
   if(!groups.length){alert('No duplicate modules found.');return;}
   let h='<h3>Possible duplicate modules</h3><div class="small" style="margin-bottom:6px">Pick the correct <b>code + name</b> to keep in each group, then Merge. Merging renames every matching module (in Curriculum, Teaching capability and the timetable) to the kept code and name, so the same module is not duplicated.</div>';
   groups.forEach((g,i)=>{const def=g.map((m,j)=>[j,(m.code?1:0),(m.module||'').length]).sort((a,b)=>b[1]-a[1]||b[2]-a[2])[0][0];
-    h+='<div style="margin:8px 0;padding:8px;border:1px solid #dbe2ef;border-radius:6px">Keep: <select id="dmk_'+i+'">'+g.map((m,j)=>`<option value="${j}"${j===def?' selected':''}>${esc((m.code||'—')+'  —  '+m.module)}</option>`).join('')+'</select> '+
-       '<button class="btn small" onclick="mergeDupMod('+i+')">Merge these '+g.length+'</button>'+
+    h+='<div id="dmg_'+i+'" style="margin:8px 0;padding:8px;border:1px solid #dbe2ef;border-radius:6px">Keep: <select id="dmk_'+i+'">'+g.map((m,j)=>`<option value="${j}"${j===def?' selected':''}>${esc((m.code||'—')+'  —  '+m.module)}</option>`).join('')+'</select> '+
+       '<button class="btn small" onclick="mergeDupMod('+i+')">Merge these '+g.length+'</button> <button class="btn small sec" onclick="ignoreDupGroup('+i+')">Ignore (keep separate)</button>'+
        '<div class="small" style="margin-top:4px;color:#555">'+g.map(m=>esc((m.code||'—')+' '+m.module)).join('  ·  ')+'</div></div>';});
   h+='<div style="text-align:right;margin-top:8px"><button class="btn sec" onclick="closeModal()">Close</button></div>';
   $('modal').innerHTML=h;$('overlay').classList.add('show');
 }
+function ignoreDupGroup(i){const el=$("dmg_"+i);if(el)el.style.display="none";}
 async function mergeDupMod(i){const g=(window.__dupMods||[])[i]; if(!g)return;
   const ki=+($('dmk_'+i).value||0); const keep=g[ki]; const drop=g.filter((m,j)=>j!==ki);
   if(!drop.length){alert('Nothing to merge.');return;}
