@@ -231,6 +231,7 @@ const PHEAD=['Day','Period','Venue','Cohort/Stream','NTA','Module','Code','Instr
 function progRows(){return ptRows().slice().sort((a,b)=>DAYS.indexOf(a.day)-DAYS.indexOf(b.day)||a.t-b.t)
     .map(s=>[s.day,timeOf(s.t),s.venue,s.prog,s.nta,s.mod,s.code,s.instr,s.occ]);}
 function ptFname(){return `CBE_Sem${SEM}_${window.__ptProg}_${(window.__ptNta||'').replace(/\s+/g,'')}${window.__ptStream&&window.__ptStream!=='All streams'?'_'+window.__ptStream:''}_timetable`;}
+function dl(text,fname,mime){try{const b=new Blob([text],{type:(mime||'text/plain')+';charset=utf-8'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=fname;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},150);}catch(e){alert('Download failed: '+e.message);}}
 function progExportCSV(){dl([csvR(PHEAD)].concat(progRows().map(csvR)).join('\n'),ptFname()+'.csv','text/csv');}
 function progExportXls(){let t='<table border=1><tr>'+PHEAD.map(h=>'<th>'+h+'</th>').join('')+'</tr>';
   progRows().forEach(r=>t+='<tr>'+r.map(c=>'<td>'+(''+c).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</td>').join('')+'</tr>');
@@ -683,14 +684,15 @@ async function renderDataPanel(){
   const r=await api(`/ref/${DATASUB}${q}`); DATAROWS=r.rows;
   let deptSel='';
   if(DATASUB==='instructors'){const depts=['All departments',...Array.from(new Set(r.rows.map(x=>x.dept).filter(Boolean))).sort()];
-    deptSel=`<b>Dept:</b> <select id="ddept">`+depts.map(d=>`<option>${esc(d)}</option>`).join('')+`</select>`;}
+    if(!window.__idept||!depts.includes(window.__idept))window.__idept='All departments';
+    deptSel=`<b>Dept:</b> <select id="ddept">`+depts.map(d=>`<option${d===window.__idept?' selected':''}>${esc(d)}</option>`).join('')+`</select>`;}
   let h=`<div class="controls"><button class="btn" onclick="entityEdit(null)">+ Add row</button>`+deptSel+
     `<a class="btn sec" href="/api/ref/${DATASUB}/template.csv">Download template</a>`+
     `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('${DATASUB}',this)"></label>`+
-    (DATASUB==='instructors'?`<button class="btn sec" onclick="findDupInstr()">🔎 Find &amp; merge duplicates</button>`:'')+
+    (DATASUB==='instructors'?`<button class="btn sec" onclick="findDupInstr()">🔎 Find &amp; merge duplicates</button><button class="btn sec" onclick="exportStaff('csv')">⬇ CSV</button><button class="btn sec" onclick="exportStaff('doc')">⬇ Word</button>`:'')+
     `<input type="text" id="dsearch" placeholder="Search…" style="min-width:200px"><span class="small">${r.rows.length} rows`+(cfg.sem?` · Semester ${SEM}`:' · shared')+`</span></div>`;
   h+='<div class="wrap"><table id="dtbl"><tr><th style="width:44px">#</th>'+cfg.labels.map(l=>`<th>${l}</th>`).join('')+'<th></th></tr>';
-  h+=r.rows.map((row,__i)=>'<tr><td class="small" style="color:#667">'+(__i+1)+'</td>'+cfg.cols.map(c=>{
+  h+=(DATASUB==='instructors'?r.rows.filter(x=>!window.__idept||window.__idept==='All departments'||x.dept===window.__idept):r.rows).map((row,__i)=>'<tr><td class="small" style="color:#667">'+(__i+1)+'</td>'+cfg.cols.map(c=>{
        let v=row[c];
        if(c==='programme'){const f=progFull(v);if(f&&f!==v)v=f+' ('+v+')';}
        return `<td>${esc(v)}</td>`;
@@ -741,12 +743,33 @@ async function mergeDupGroup(i){
   toast('Merged into '+keep); closeModal(); await loadData(); renderNav(); renderDataPanel();
 }
 function wireInstrFilters(){const s=$('dsearch'),d=$('ddept');
-  const apply=()=>{const q=(s?s.value.toLowerCase():''),dv=(d?d.value:'All departments');
+  if(d)d.onchange=()=>{window.__idept=d.value;renderDataPanel();};
+  const apply=()=>{const q=(s?s.value.toLowerCase():'');let n=0;
     document.querySelectorAll('#dtbl tr').forEach((tr,i)=>{if(i===0)return;
       const okq=!q||tr.textContent.toLowerCase().includes(q);
-      const okd=(dv==='All departments')||(tr.children[2]&&tr.children[2].textContent===dv);
-      tr.style.display=(okq&&okd)?'':'none';});};
-  if(s)s.oninput=apply; if(d)d.onchange=apply;}
+      tr.style.display=okq?'':'none';
+      if(okq){n++; if(tr.children[0])tr.children[0].textContent=n;}});};
+  if(s)s.oninput=apply; apply();}
+function exportStaff(fmt){
+  const dv=window.__idept||'All departments', qq=($('dsearch')?$('dsearch').value.toLowerCase():'');
+  const rows=(DATAROWS||[]).filter(x=>(dv==='All departments'||x.dept===dv)&&(!qq||[x.name,x.dept,x.qual,x.position,x.status].join(' ').toLowerCase().includes(qq)));
+  const cols=['#','Name','Department','Qualification','Position','Status','Module limit'];
+  const data=rows.map((x,i)=>[i+1,x.name||'',x.dept||'',x.qual||'',x.position||'',x.status||'',x.module_limit||'']);
+  const dept=(dv&&dv!=='All departments')?dv:'All departments';
+  const title='CBE — List of Staff ('+dept+') — '+rows.length+' staff';
+  const fbase='CBE_Staff_'+dept.replace(/[^A-Za-z0-9]+/g,'_');
+  if(fmt==='csv'){
+    const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+    const csv=[cols.map(q).join(',')].concat(data.map(r=>r.map(q).join(','))).join('\n');
+    dl(csv,fbase+'.csv','text/csv');
+  } else {
+    let h='<html><head><meta charset="utf-8"></head><body>';
+    h+='<h2>'+esc(title)+'</h2><table border="1" cellspacing="0" cellpadding="5" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif"><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr>';
+    h+=data.map(r=>'<tr>'+r.map(c=>'<td>'+esc(String(c))+'</td>').join('')+'</tr>').join('');
+    h+='</table></body></html>';
+    dl(h,fbase+'.doc','application/msword');
+  }
+}
 function wireSearch(){const s=$('dsearch');if(!s)return;s.oninput=()=>{const q=s.value.toLowerCase();
   document.querySelectorAll('#dtbl tr').forEach((tr,i)=>{if(i===0)return;tr.style.display=(!q||tr.textContent.toLowerCase().includes(q))?'':'none';});};}
 function entityEdit(rid){
