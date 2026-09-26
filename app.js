@@ -599,7 +599,7 @@ async function renderCurriculum(){
   h+=`<div class="controls"><b>Programme:</b> <select id="currprogsel" style="min-width:340px">`+
      progs.map(pr=>`<option value="${esc(pr)}"${pr===prog?' selected':''}>${esc(progFull(pr))} (${esc(pr)})</option>`).join('')+`</select>`;
   if(missing.length)h+=` <select id="curraddlvl" style="font-size:12px"><option value="">+ Add NTA level…</option>`+missing.map(l=>`<option value="${l}">${l}</option>`).join('')+`</select>`;
-  h+=`<span class="small">${levelKeys.length} NTA level(s)</span></div>`;
+  h+=`<button class="btn sec" onclick="exportCurriculum('doc')">⬇ Word</button><button class="btn sec" onclick="exportCurriculum('csv')">⬇ CSV</button><span class="small">${levelKeys.length} NTA level(s)</span></div>`;
   const cell=(lv,sem)=>{
     let c='';
     lvls[lv][sem].slice().sort((a,b)=>String(a.module).localeCompare(String(b.module))).forEach(m=>{
@@ -633,6 +633,30 @@ async function currSet(id,field,value){
   await api('/ref/curriculum/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({programme:r.programme,nta:r.nta,code:r.code||'',module:r.module||'',credit:r.credit||'',cls:r.cls||'',sem:r.sem})});
   toast('Saved');
+}
+function exportCurriculum(fmt){
+  const prog=window.__currProg;
+  const lvls={}; (CURRROWS||[]).filter(r=>r.programme===prog).forEach(r=>{const lv=r.nta||'—';(lvls[lv]||(lvls[lv]={I:[],II:[]}));lvls[lv][r.sem].push(r);});
+  const keys=Object.keys(lvls).sort((a,b)=>ntaLevel(a)-ntaLevel(b));
+  const items=(lv,sem)=>lvls[lv][sem].slice().sort((a,b)=>String(a.module).localeCompare(String(b.module))).map(m=>((m.code||'')+' '+(m.module||'')).trim());
+  const fbase='CBE_Curriculum_'+String(prog).replace(/[^A-Za-z0-9]+/g,'_');
+  const title='CBE — Curriculum: '+progFull(prog)+' ('+prog+')';
+  if(fmt==='csv'){
+    const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+    const lines=[['Programme','NTA level','Semester','Code','Module'].map(q).join(',')];
+    keys.forEach(lv=>['I','II'].forEach(sem=>lvls[lv][sem].forEach(m=>lines.push([prog,lv,sem,m.code||'',m.module||''].map(q).join(',')))));
+    dl(lines.join('\n'),fbase+'.csv','text/csv');
+  } else {
+    let h='<html><head><meta charset="utf-8"></head><body><h2>'+esc(title)+'</h2>';
+    h+='<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif"><tr><th>NTA level</th><th>Semester I modules</th><th>Semester II modules</th></tr>';
+    keys.forEach(lv=>{
+      const c1=items(lv,'I').map(t=>esc(t)).join('<br>')||'—';
+      const c2=items(lv,'II').map(t=>esc(t)).join('<br>')||'—';
+      h+='<tr><td style="vertical-align:top"><b>'+esc(lv)+'</b></td><td style="vertical-align:top">'+c1+'</td><td style="vertical-align:top">'+c2+'</td></tr>';
+    });
+    h+='</table></body></html>';
+    dl(h,fbase+'.doc','application/msword');
+  }
 }
 async function currAddModule(lvl,sem){
   await api('/ref/curriculum',{method:'POST',headers:{'Content-Type':'application/json'},
