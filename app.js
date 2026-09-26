@@ -16,6 +16,7 @@ async function loadData(){
   if(D.meta&&D.meta.days){DAYS=D.meta.days;}
   try{const st=(await api('/settings')).settings;if(st){if(st.academic_year&&$('acadyear'))$('acadyear').textContent=st.academic_year;
     ADMIN_PIN=st.admin_pin||'';ADMIN=(ADMIN_PIN==='')||(localStorage.getItem('cbe_admin')===ADMIN_PIN);updateAdminBtn();}}catch(e){}
+  try{PROGNAMES=(await api('/prog_names')).names||PROGNAMES;}catch(e){}
 }
 function updateAdminBtn(){const b=$('adminbtn');if(!b)return;
   if(HODMODE||!ADMIN_PIN){b.style.display='none';return;}
@@ -387,7 +388,8 @@ const PROGFULL={
   MPMME:'Master of Project Management, Monitoring and Evaluation',
   MTEM:'Marketing in Tourism and Events Management',
 };
-function progFull(code){return PROGFULL[code]||code;}
+let PROGNAMES={};
+function progFull(code){return (PROGNAMES&&PROGNAMES[code])||PROGFULL[code]||code;}
 async function moduleModal(code,module){
   let progs=[];try{progs=[...new Set((await api('/ref/enrolment')).rows.map(x=>x.programme))].sort();}catch(e){}
   window.__asgCtx={code,module};
@@ -653,13 +655,13 @@ async function currSet(id,field,value){
   toast('Saved');
 }
 async function currRenameProgramme(){
-  const cur=window.__currProg; if(!cur)return;
-  const nw=(prompt('Rename this programme. This updates it in Curriculum and Enrolment. Enter the new programme code/name:',cur)||'').trim();
-  if(!nw||nw===cur)return;
-  const clash=(CURRROWS||[]).some(r=>(r.programme||'').toLowerCase()===nw.toLowerCase());
-  if(clash&&!confirm('A programme "'+nw+'" already exists. Merge this one into it?'))return;
-  try{await api('/programmes/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:cur,new:nw})});}catch(e){alert('Rename failed: '+e.message);return;}
-  window.__currProg=nw; toast('Programme renamed to '+nw); renderCurriculum();
+  const code=window.__currProg; if(!code)return;
+  const curName=progFull(code);
+  const nm=(prompt('Edit the full name for programme code "'+code+'" (the code stays the same):',curName)||'').trim();
+  if(nm&&nm!==curName){
+    try{await api('/prog_names',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name:nm})});}catch(e){alert('Failed: '+e.message);return;}
+    PROGNAMES=PROGNAMES||{}; PROGNAMES[code]=nm; toast('Programme name updated'); renderCurriculum();
+  }
 }
 async function currAddProgramme(){
   const code=(prompt('Enter the new programme code (e.g. ACC, MET, BA, MBA-MKTM):','')||'').trim();
@@ -747,7 +749,7 @@ async function renderDataPanel(){
   let h=`<div class="controls"><button class="btn" onclick="entityEdit(null)">+ Add row</button>`+deptSel+
     `<a class="btn sec" href="/api/ref/${DATASUB}/template.csv">Download template</a>`+
     `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('${DATASUB}',this)"></label>`+
-    (DATASUB==='instructors'?`<button class="btn sec" onclick="findDupInstr()">🔎 Find &amp; merge duplicates</button><button class="btn sec" onclick="exportStaff('csv')">⬇ CSV</button><button class="btn sec" onclick="exportStaff('doc')">⬇ Word</button>`:'')+
+    (DATASUB==='instructors'?`<button class="btn sec" onclick="findDupInstr()">🔎 Find &amp; merge duplicates</button><button class="btn sec" onclick="renameDept()">✎ Rename dept</button><button class="btn sec" onclick="exportStaff('csv')">⬇ CSV</button><button class="btn sec" onclick="exportStaff('doc')">⬇ Word</button>`:'')+
     `<input type="text" id="dsearch" placeholder="Search…" style="min-width:200px"><span class="small">${r.rows.length} rows`+(cfg.sem?` · Semester ${SEM}`:' · shared')+`</span></div>`;
   h+='<div class="wrap"><table id="dtbl"><tr><th style="width:44px">#</th>'+cfg.labels.map(l=>`<th>${l}</th>`).join('')+'<th></th></tr>';
   h+=(DATASUB==='instructors'?r.rows.filter(x=>!window.__idept||window.__idept==='All departments'||x.dept===window.__idept):r.rows).map((row,__i)=>'<tr><td class="small" style="color:#667">'+(__i+1)+'</td>'+cfg.cols.map(c=>{
@@ -771,6 +773,13 @@ function sameInstr(a,b){const na=normNm(a),nb=normNm(b);if(!na||!nb)return false
   if(na.length>=6&&nb.length>=6&&(na.includes(nb)||nb.includes(na)))return true;
   const d=lev(na,nb),L=Math.max(na.length,nb.length);
   return d<=2 || (L>=10 && d<=Math.round(L*0.15));}
+async function renameDept(){
+  const cur=window.__idept; if(!cur||cur==='All departments'){alert('Choose a department in the Dept filter first, then Rename.');return;}
+  const nw=(prompt('Rename department "'+cur+'". This updates every staff member and enrolment row in it:',cur)||'').trim();
+  if(!nw||nw===cur)return;
+  try{await api('/departments/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:cur,new:nw})});}catch(e){alert('Rename failed: '+e.message);return;}
+  window.__idept=nw; toast('Department renamed to '+nw); await loadData(); renderNav(); renderDataPanel();
+}
 async function findDupInstr(){
   let names;
   try{names=(await api('/instructor_names')).names||[];}
