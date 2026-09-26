@@ -484,6 +484,16 @@ async function teachSetCode(id,code){const r=(TEACHROWS||[]).find(x=>x._id===id)
   toast('Code saved'+(lv?' → '+lv:''));renderTeaching();}
 async function teachDel(id){await api('/ref/teaching/'+id,{method:'DELETE'});toast('Removed');renderTeaching();}
 const LDAYS=['Mon','Tue','Wed','Thu','Fri','Sat'], LPERIODS=[7,9,11,13,15,17,19];
+// Standard picklists for lecturer qualification and position. An existing value
+// that is not in the list is preserved as its own selected option (no data lost).
+const QUALS=["Bachelor's Degree","Master's Degree","PhD"];
+const POSNS=["Tutorial Assistant","Assistant Lecturer","Lecturer","Senior Lecturer","Associate Professor","Professor"];
+function selOpts(list,cur){cur=(cur||"").trim();
+  const inList=list.some(x=>x.toLowerCase()===cur.toLowerCase());
+  let o=`<option value=""${cur?"":" selected"}>— select —</option>`;
+  if(cur&&!inList)o+=`<option selected>${esc(cur)}</option>`;
+  o+=list.map(x=>`<option${(cur&&x.toLowerCase()===cur.toLowerCase())?" selected":""}>${esc(x)}</option>`).join("");
+  return o;}
 async function lecturerModal(rid,preset){
   const all=(await api('/ref/instructors')).rows;
   const row=rid==null?{}:(all.find(x=>x._id===rid)||{});
@@ -496,8 +506,8 @@ async function lecturerModal(rid,preset){
     '<div style="display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow:auto">'+
       fld('Full name & title',`<input type="text" id="l_name" value="${esc(row.name||'')}">`)+
       fld('Department',`<input type="text" id="l_dept" list="deptlist" value="${esc(row.dept||(window.__tDept&&window.__tDept!=='All departments'?window.__tDept:''))}"><datalist id="deptlist">${depts.map(d=>`<option>${esc(d)}</option>`).join('')}</datalist>`)+
-      fld('Academic qualification',`<input type="text" id="l_qual" value="${esc(row.qual||'')}">`)+
-      fld('Position',`<input type="text" id="l_position" value="${esc(row.position||'')}">`)+
+      fld('Academic qualification',`<select id="l_qual">${selOpts(QUALS,row.qual)}</select>`)+
+      fld('Position',`<select id="l_position">${selOpts(POSNS,row.position)}</select>`)+
       fld('Duty status',`<select id="l_status">${STAT.map(s=>`<option ${s===status?'selected':''}>${s}</option>`).join('')}</select>`)+
       fld('Module limit (blank = normal cap; set a smaller number for part-timers / volunteers)',`<input type="number" id="l_limit" value="${esc(row.module_limit||'')}" placeholder="e.g. 2">`)+
       '<div style="font-size:11px;color:#4a5568">Available / preferred days <span class="small">(leave all unticked = any day)</span><br>'+
