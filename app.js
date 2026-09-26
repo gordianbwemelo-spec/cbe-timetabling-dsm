@@ -221,7 +221,7 @@ R.progtt=function(){const all=S();
   const strms=['All streams',...[...new Set(all.filter(s=>baseProgs(s.prog).includes(window.__ptProg)&&s.nta===window.__ptNta).map(s=>s.stream).filter(x=>x))].sort()];
   if(!window.__ptStream||!strms.includes(window.__ptStream))window.__ptStream='All streams';
   let h=`<h2>Programme Timetable — Semester ${SEM}</h2>`;
-  h+=`<div class="controls noprint"><b>Programme:</b> <select id="ptsel">`+progs.map(p=>`<option value="${esc(p)}" ${p===window.__ptProg?'selected':''}>${esc(progFull(p))} (${esc(p)})</option>`).join('')+`</select>`+
+  h+=`<div class="controls noprint"><b>Programme:</b> <select id="ptsel">`+progs.map(p=>`<option value="${esc(p)}" ${p===window.__ptProg?'selected':''}>${esc(progLabel(p))}</option>`).join('')+`</select>`+
      `<b>NTA level:</b> <select id="ptnta">`+ntas.map(n=>`<option ${n===window.__ptNta?'selected':''}>${esc(n)}</option>`).join('')+`</select>`+
      `<b>Stream:</b> <select id="ptstrm">`+strms.map(s=>`<option ${s===window.__ptStream?'selected':''}>${esc(s)}</option>`).join('')+`</select>`+
      `<button class="btn sec" onclick="window.print()">🖨 Print / Save PDF</button>`+
@@ -329,7 +329,7 @@ R.catalogue=async function(){
   const levelKeys=Object.keys(lvls).sort((a,b)=>ntaLevel(a)-ntaLevel(b));
   let h=`<h2>Module Catalogue</h2><div class="note">Modules taught in each programme, grouped by <b>NTA level</b> and <b>semester</b>. A module shared by more than one programme is tagged <b>cross-cutting</b>. Edit modules on the <b>Data → Curriculum</b> tab.</div>`;
   h+=`<div class="controls"><b>Programme:</b> <select id="catprog" style="min-width:340px">`+
-     progs.map(p=>`<option value="${esc(p)}"${p===prog?' selected':''}>${esc(progFull(p))} (${esc(p)})</option>`).join('')+`</select>`+
+     progs.map(p=>`<option value="${esc(p)}"${p===prog?' selected':''}>${esc(progLabel(p))}</option>`).join('')+`</select>`+
      `<input type="text" id="catsearch" placeholder="Search module or code…" style="min-width:240px">`+
      `<button class="btn sec" onclick="exportCurriculum('doc',window.__catProg,window.__catRows)">⬇ Word</button>`+
      `<button class="btn sec" onclick="exportCurriculum('csv',window.__catProg,window.__catRows)">⬇ CSV</button></div>`;
@@ -390,6 +390,7 @@ const PROGFULL={
 };
 let PROGNAMES={};
 function progFull(code){return (PROGNAMES&&PROGNAMES[code])||PROGFULL[code]||code;}
+function progLabel(p){const n=progFull(p);return n===p?p:(n+' ('+p+')');}
 async function moduleModal(code,module){
   let progs=[];try{progs=[...new Set((await api('/ref/enrolment')).rows.map(x=>x.programme))].sort();}catch(e){}
   window.__asgCtx={code,module};
@@ -426,7 +427,7 @@ R.streams=async function(){const r=await api(`/${SEM}/streams`);
   if(!window.__stProg||!progs.includes(window.__stProg))window.__stProg=progs[0]||'';
   let h=`<h2>Streams — Semester ${SEM} <span class="small">(largest room ${r.maxcap} seats; suggested streams = enrolment ÷ largest room)</span></h2>`;
   h+=`<div class="controls"><b>Programme:</b> <select id="stprog" style="min-width:340px">`+
-     progs.map(p=>`<option value="${esc(p)}"${p===window.__stProg?' selected':''}>${esc(progFull(p))} (${esc(p)})</option>`).join('')+`</select></div>`;
+     progs.map(p=>`<option value="${esc(p)}"${p===window.__stProg?' selected':''}>${esc(progLabel(p))}</option>`).join('')+`</select></div>`;
   const my=rows.filter(x=>x.programme===window.__stProg).sort((a,b)=>ntaLevel(a.nta)-ntaLevel(b.nta));
   h+='<div class="wrap"><table id="dtbl"><tr><th>NTA level</th><th>Enrolment</th><th>Suggested streams</th><th>Streams present</th><th>Sessions</th></tr>';
   h+=my.map(x=>`<tr><td><b>${esc(x.nta)}</b></td><td>${x.enrolment||'—'}</td><td>${x.suggested||'—'}</td><td>${esc(x.streams_present||'—')} <span class="small">(${x.n_present})</span></td><td>${x.sessions}</td></tr>`).join('')||'<tr><td colspan="5" class="small">No cohorts for this programme.</td></tr>';
@@ -617,7 +618,7 @@ async function renderCurriculum(){
   const missing=NTAOPTS.filter(l=>!lvls[l]);
   let h='<div class="note">Choose a <b>programme</b>, then for each <b>NTA level</b> edit its <b>Semester I</b> and <b>Semester II</b> modules side by side. Codes and names are editable; use <b>+ Add module</b> or <b>✕</b> to add/remove, the NTA-level dropdown to change a level, <b>Drop</b> to remove a level that does not apply, or <b>+ Add NTA level</b>. Changes save immediately.</div>';
   h+=`<div class="controls"><b>Programme:</b> <select id="currprogsel" style="min-width:340px">`+
-     progs.map(pr=>`<option value="${esc(pr)}"${pr===prog?' selected':''}>${esc(progFull(pr))} (${esc(pr)})</option>`).join('')+`</select> <button class="btn" onclick="currAddProgramme()">+ Add programme</button> <button class="btn sec" onclick="currRenameProgramme()">✎ Rename</button>`;
+     progs.map(pr=>`<option value="${esc(pr)}"${pr===prog?' selected':''}>${esc(progLabel(pr))}</option>`).join('')+`</select> <button class="btn" onclick="currAddProgramme()">+ Add programme</button> <button class="btn sec" onclick="currRenameProgramme()">✎ Rename</button>`;
   if(missing.length)h+=` <select id="curraddlvl" style="font-size:12px"><option value="">+ Add NTA level…</option>`+missing.map(l=>`<option value="${l}">${l}</option>`).join('')+`</select>`;
   h+=`<button class="btn sec" onclick="exportCurriculum('doc')">⬇ Word</button><button class="btn sec" onclick="exportCurriculum('csv')">⬇ CSV</button><span class="small">${levelKeys.length} NTA level(s)</span></div>`;
   const cell=(lv,sem)=>{
@@ -655,13 +656,21 @@ async function currSet(id,field,value){
   toast('Saved');
 }
 async function currRenameProgramme(){
-  const code=window.__currProg; if(!code)return;
-  const curName=progFull(code);
-  const nm=(prompt('Edit the full name for programme code "'+code+'" (the code stays the same):',curName)||'').trim();
-  if(nm&&nm!==curName){
-    try{await api('/prog_names',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name:nm})});}catch(e){alert('Failed: '+e.message);return;}
-    PROGNAMES=PROGNAMES||{}; PROGNAMES[code]=nm; toast('Programme name updated'); renderCurriculum();
+  const cur=window.__currProg; if(!cur)return;
+  const code=(prompt('Short programme CODE (used internally to group the timetable; keep it short, e.g. BADD):',cur)||'').trim();
+  if(code&&code!==cur){
+    const clash=(CURRROWS||[]).some(r=>(r.programme||'').toLowerCase()===code.toLowerCase());
+    if(clash&&!confirm('A programme "'+code+'" already exists. Merge this one into it?'))return;
+    try{await api('/programmes/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:cur,new:code})});}catch(e){alert('Code change failed: '+e.message);return;}
+    window.__currProg=code;
   }
+  const fc=window.__currProg; const curName=progFull(fc);
+  const name=(prompt('Full programme NAME (shown in lists, reports and downloads):',curName)||'').trim();
+  if(name&&name!==curName){
+    try{await api('/prog_names',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:fc,name})});}catch(e){alert('Name change failed: '+e.message);return;}
+    PROGNAMES=PROGNAMES||{}; PROGNAMES[fc]=name;
+  }
+  toast('Programme updated'); await loadData(); renderCurriculum();
 }
 async function currAddProgramme(){
   const code=(prompt('Enter the new programme code (e.g. ACC, MET, BA, MBA-MKTM):','')||'').trim();
