@@ -24,7 +24,7 @@ def max_consecutive(ts):
 ITPROG = re.compile(r"\bICT\b|\bIT\b|BScIT|\bBIT\b|\bDIT\b|HDIT|TCIT|BTCIT|Information Technology|ITPMGT|MBI|IT-", re.I)
 ITKW = re.compile(r"program|network|database|web|multimedia|graphic|software|data structure|operating system|"
                   r"system analys|data mining|warehous|analytic|cyber|cloud|machine learning|artificial intel|"
-                  r"mobile app|e-commerce", re.I)
+                  r"mobile app|e-commerce|comput|practical|informat|spreadsheet|programming", re.I)
 
 def time_of(t): return f"{t:02d}:00-{t+2:02d}:00"
 def prog_is_it(s): return bool(ITPROG.search((s.get("prog") or "") + " " + (s.get("nta") or "")))
