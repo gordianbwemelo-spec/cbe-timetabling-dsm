@@ -44,6 +44,9 @@ def _nta9_venue(vn):
     vn = vn or ""
     return vn in ("BTA", "BTB", "BTC", "BLOCK E") or vn.startswith("B2-5")
 
+def _is_saba(p):
+    return "saba" in (p or "").lower()
+
 def time_of(t):
     return f"{t:02d}:00-{t+2:02d}:00"
 
@@ -137,7 +140,7 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
     def venue_ok(v, size, nta, mod, code, t):
         if size > v["capacity"] + tol:
             return False
-        if v["premises"] == "Saba" and t in EVE:
+        if _is_saba(v["premises"]) and t in EVE:
             return False
         if v["is_lab"] and not is_it(nta, mod, code):
             return False
@@ -254,31 +257,40 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                 bins.append({"members": [d], "size": s})
         return bins
 
-    groups = []   # each: {nta, mod, code, evening, size, members:[unit...]}
+    def is_saba_side(u, nta):
+        # A Saba programme at NTA 4/5/6 belongs to the Saba side (homed at Saba).
+        return saba_progs is not None and _lvl(nta) in SABA_LEVELS and u["prog"] in saba_progs
+
+    groups = []   # each: {nta, mod, code, evening, size, members:[unit...], side}
     total_pairs = 0
     for (nta, mkey), ds in sorted(demand.items()):
         nta9 = "NTA9" in (nta or "")
         cap = (sz_pg if nta9 else sz_hall) + tol
         total_pairs += len(ds)
         rep = next((d for d in ds if d["code"]), ds[0])
-        # Cross-cutting merge WITHIN each mode: day classes stay daytime, evening
-        # classes stay evening.  Nothing daytime is pushed to the evening here.
-        day_bins = ffd([d for d in ds if not d["u"]["evening"]], cap)
-        eve_bins = ffd([d for d in ds if d["u"]["evening"]], cap)
-        # Full-time + evening merge: only when this module genuinely HAS an evening
-        # section, fold whichever daytime bins still fit into an evening bin (the
-        # combined class then meets in the evening).  Bigger evening bins first.
-        if merge_ft_eve and eve_bins and day_bins:
-            for eb in sorted(eve_bins, key=lambda b: -b["size"]):
-                for db in sorted(day_bins, key=lambda b: -b["size"]):
-                    if db in day_bins and eb["size"] + db["size"] <= cap:
-                        eb["members"] += db["members"]; eb["size"] += db["size"]
-                        day_bins.remove(db)
-        for evening, bins in ((False, day_bins), (True, eve_bins)):
-            for b in bins:
-                groups.append({"nta": nta, "mod": rep["mod"], "code": rep["code"],
-                               "evening": evening or any(d["u"]["evening"] for d in b["members"]),
-                               "size": b["size"], "members": [d["u"] for d in b["members"]]})
+
+        def pack(items, side):
+            # Cross-cutting merge WITHIN one premises side and mode: day stays day,
+            # evening stays evening. Saba-side and Main-side are never merged
+            # together (Main programmes cannot sit in Saba rooms), so the Saba
+            # programmes keep their own class at Saba.
+            day_bins = ffd([d for d in items if not d["u"]["evening"]], cap)
+            eve_bins = ffd([d for d in items if d["u"]["evening"]], cap)
+            if merge_ft_eve and eve_bins and day_bins:
+                for eb in sorted(eve_bins, key=lambda b: -b["size"]):
+                    for db in sorted(day_bins, key=lambda b: -b["size"]):
+                        if db in day_bins and eb["size"] + db["size"] <= cap:
+                            eb["members"] += db["members"]; eb["size"] += db["size"]
+                            day_bins.remove(db)
+            for evening, bins in ((False, day_bins), (True, eve_bins)):
+                for b in bins:
+                    groups.append({"nta": nta, "mod": rep["mod"], "code": rep["code"],
+                                   "evening": evening or any(d["u"]["evening"] for d in b["members"]),
+                                   "size": b["size"], "members": [d["u"] for d in b["members"]],
+                                   "side": side})
+
+        pack([d for d in ds if is_saba_side(d["u"], nta)], "saba")
+        pack([d for d in ds if not is_saba_side(d["u"], nta)], "main")
 
     # ---- 3. Schedule each group ONCE (one lecturer, one room, 2 sessions) -----
     vbusy, sbusy = set(), set()
@@ -300,10 +312,7 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
         evening = g["evening"]; size = g["size"]; members = g["members"]
         gkey = (nta, (code or "").strip().lower() or ("m:" + (mod or "").strip().lower()))
         cand = sorted(eligible(nta, mod, code), key=rank)
-        if saba_progs is None:
-            grp_saba_ok = True
-        else:
-            grp_saba_ok = (_lvl(nta) in SABA_LEVELS) and all(u["prog"] in saba_progs for u in members)
+        saba_home = (g.get("side") == "saba")   # a Saba programme at NTA 4/5/6
         done = False
         for instr in cand:
             new_mod = gkey not in imod[instr]
@@ -357,14 +366,16 @@ def generate(sem, venues, instructors, teaching, curriculum, enrolment, settings
                     rooms = [v for v in V
                              if (v["venue"], day, t) not in vbusy
                              and venue_ok(v, size, nta, mod, code, t)
-                             and (v["premises"] != "Saba" or grp_saba_ok)
+                             and (not _is_saba(v["premises"]) or saba_home)
                              and travel_ok(instr, day, t, v["premises"])]
                     if not rooms:
                         continue
                     it_mod = is_it(nta, mod, code)
-                    # IT prefers a lab; then spread across rooms (fewest days used
-                    # so far) so no venue sits idle all week; then least wasted seats.
+                    # IT prefers a lab; Saba programmes prefer their Saba rooms;
+                    # then spread across rooms (fewest days used so far) so no venue
+                    # sits idle all week; then least wasted seats.
                     rooms.sort(key=lambda v: (0 if (it_mod and v["is_lab"]) else 1,
+                                              0 if (saba_home and _is_saba(v["premises"])) else 1,
                                               len(vdays[v["venue"]]), v["capacity"]))
                     v = rooms[0]
                     placed.append((day, t, v)); used_days.add(day); break
