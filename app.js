@@ -951,11 +951,19 @@ const BUILTIN_RULES=[
  'R3 — No instructor is double-booked.',
  'R4 — No cohort/stream is double-booked.',
  'R5 — No room loaded beyond capacity (+ tolerance).',
- 'R6 — Saba Saba venues end by 17:00.',
- 'R7 — Laboratories/smart rooms only for hands-on IT modules.',
+ 'R6 — Saba Saba venues end by 17:00, and serve ONLY Marketing, Business Administration, Procurement & Supply Chain Management, and Marketing in Tourism & Events Management, at NTA 4, 5 and 6.',
+ 'R7 — Laboratories/smart rooms only for hands-on IT modules (which are placed in a lab first).',
  'R8 — Master’s (NTA9) only in the evening or Saturday, in BTA/BTB/BTC.',
- 'R9 — Appropriate allocation: Master’s to PhD holders; IT to ICT staff; modules only to capable staff.',
+ 'R9 — Appropriate allocation: Master’s (NTA9) to PhD holders or professors; IT to ICT staff; modules only to capable staff.',
  'R10 — No stream has more than 3 back-to-back (consecutive) sessions in a day.',
+ 'R11 — No instructor has more than 3 back-to-back sessions in a day.',
+ 'R12 — An instructor at Main and at Saba Saba the same day needs at least a 2-hour travel gap (else a different day).',
+ 'R13 — On-duty staff are allocated first; part-timers/volunteers only after.',
+ 'R14 — Tutorial Assistants teach only NTA 4, 5 or 6.',
+ 'R15 — Instructors on study leave are never allocated.',
+ 'R16 — Cross-cutting: the same module at the same NTA level, taught to more than one programme/stream, is merged into ONE session when a room can hold the combined class (saves cost).',
+ 'R17 — A full-time and an evening class of the same module are merged into one evening session when a room can hold them together (can be turned off in Settings).',
+ 'R18 — Streams are sized from enrolment and the largest room, so Semester I streams do not change in Semester II. A programme not split into streams carries no “STRM” label.',
  'L1–L3 — Load caps: max modules, daytime hours and evening hours per instructor.'];
 R.rules=async function(){const r=await api('/settings');const s=r.settings;
   let vs={largest_hall:0,typical_classroom:0,typical_lab:0}; try{vs=await api(`/${SEM}/venuesizes`);}catch(e){}
