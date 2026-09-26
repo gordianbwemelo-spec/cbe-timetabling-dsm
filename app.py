@@ -1148,9 +1148,20 @@ def generate_tt(sem):
         return vn in ("BTA", "BTB", "BTC", "BLOCK E") or vn.startswith("B2-5")
     _hall = [v["capacity"] for v in allv if not v["is_lab"]]
     _pg = [v["capacity"] for v in allv if _pg9(v["venue"])]
+    # Saba Saba premises serve ONLY these programmes (Marketing, Business
+    # Administration, Procurement & Supply Chain, Marketing in Tourism & Events)
+    # at NTA 4/5/6. Match by full programme name so code variants still resolve.
+    pn = {r["code"]: r["name"] for r in db().execute("SELECT code, name FROM prog_names")}
+    saba_kw = ("marketing", "business administration", "procurement", "tourism")
+    all_progs = set(r[0] for r in db().execute("SELECT DISTINCT programme FROM curriculum")) \
+        | set(r[0] for r in db().execute("SELECT DISTINCT programme FROM enrolment"))
+    def _full(code):
+        return (pn.get(code) or PROG_DEFAULTS.get(code) or code or "").lower()
+    saba_progs = [c for c in all_progs if c and any(k in _full(c) for k in saba_kw)]
     st = {**get_settings(),
           "_hall_cap": max(_hall) if _hall else 0,
-          "_pg_cap": max(_pg) if _pg else 0}
+          "_pg_cap": max(_pg) if _pg else 0,
+          "_saba_progs": "|".join(sorted(saba_progs))}
     result = generator.generate(sem, venues(sem), instructors(), teach, cur, enr, st)
     # write generated sessions in place of the current ones for this semester
     db().execute("DELETE FROM sessions WHERE semester=?", (sem,))
