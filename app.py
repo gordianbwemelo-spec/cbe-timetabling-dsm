@@ -100,6 +100,11 @@ def init_db():
         con.execute("ALTER TABLE enrolment ADD COLUMN evening INTEGER")  # evening/weekend-only headcount
     if "nta" not in [r[1] for r in con.execute("PRAGMA table_info(teaching)")]:
         con.execute("ALTER TABLE teaching ADD COLUMN nta TEXT")
+    # editable full names for programme codes (falls back to the code)
+    con.execute("CREATE TABLE IF NOT EXISTS prog_names(code TEXT PRIMARY KEY, name TEXT)")
+    if con.execute("SELECT COUNT(*) FROM prog_names").fetchone()[0] == 0:
+        for code, name in PROG_DEFAULTS.items():
+            con.execute("INSERT OR IGNORE INTO prog_names(code, name) VALUES(?,?)", (code, name))
     # backfill the NTA level from the module code for any capability row that has a
     # code but no level yet (auto-levels modules already in the system). Rows a HoD
     # has already set by hand keep their value; codeless rows wait for a code.
@@ -882,6 +887,48 @@ def programmes_rename():
     con.execute("UPDATE curriculum SET programme=? WHERE programme=?", (new, old))
     con.execute("UPDATE enrolment SET programme=? WHERE programme=?", (new, old))
     con.execute("UPDATE sessions SET prog=? WHERE prog=?", (new, old))
+    con.commit()
+    return jsonify(ok=True)
+
+PROG_DEFAULTS = {
+    "ACC":"Accountancy","AF":"Accounting and Finance","AT":"Accounting and Taxation",
+    "BA":"Business Administration","BF":"Banking and Finance","EF":"Economics and Finance",
+    "EI":"Entrepreneurship and Innovation","HRM":"Human Resource Management",
+    "ICT":"Information and Communication Technology","MET":"Metrology","MK":"Marketing",
+    "PSCM":"Procurement and Supply Chain Management","RAM":"Records and Archives Management",
+    "TLM":"Transport and Logistics Management","MSCM":"Master of Supply Chain Management",
+    "MSc.ITPMGT":"MSc in IT Project Management","Msc. PSCM":"MSc in Procurement and Supply Chain Management",
+    "MBA-F&B":"MBA – Finance and Banking","MBA-HRM":"MBA – Human Resource Management",
+    "MBA-MKTM":"MBA – Marketing Management","BBSE":"Business Studies with Education",
+    "MIBM":"Master of International Business Management","MLG":"Master of Leadership and Governance",
+    "MPMME":"Master of Project Management, Monitoring and Evaluation",
+    "MTEM":"Marketing in Tourism and Events Management",
+}
+
+@app.get("/api/prog_names")
+def prog_names_get():
+    rows = db().execute("SELECT code, name FROM prog_names").fetchall()
+    return jsonify(names={r[0]: r[1] for r in rows})
+
+@app.post("/api/prog_names")
+def prog_names_set():
+    b = request.get_json(force=True)
+    code = (b.get("code") or "").strip(); name = (b.get("name") or "").strip()
+    if not code:
+        return jsonify(ok=False, error="need code"), 400
+    db().execute("INSERT INTO prog_names(code,name) VALUES(?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name", (code, name))
+    db().commit()
+    return jsonify(ok=True)
+
+@app.post("/api/departments/rename")
+def departments_rename():
+    b = request.get_json(force=True)
+    old = (b.get("old") or "").strip(); new = (b.get("new") or "").strip()
+    if not old or not new or old == new:
+        return jsonify(ok=False, error="need distinct old and new"), 400
+    con = db()
+    con.execute("UPDATE instructors SET dept=? WHERE dept=?", (new, old))
+    con.execute("UPDATE enrolment SET department=? WHERE department=?", (new, old))
     con.commit()
     return jsonify(ok=True)
 
