@@ -1018,8 +1018,8 @@ def unallocated(sem):
         progs[((code or "").strip(), (module or "").strip(), nta or "")].add(programme)
     out = []
     for (code, module, nta), pset in progs.items():
-        if not module:
-            continue
+        if not module or module.strip().lower() == "new module":
+            continue  # only real curriculum modules
         c = code.lower(); m = module.lower()
         if (c and c in tcodes) or (m and m in tnames):
             continue
