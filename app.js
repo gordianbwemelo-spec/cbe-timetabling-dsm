@@ -689,8 +689,8 @@ async function renderDataPanel(){
     `<label class="btn sec" style="cursor:pointer">Upload CSV<input type="file" accept=".csv" style="display:none" onchange="uploadCSV('${DATASUB}',this)"></label>`+
     (DATASUB==='instructors'?`<button class="btn sec" onclick="findDupInstr()">🔎 Find &amp; merge duplicates</button>`:'')+
     `<input type="text" id="dsearch" placeholder="Search…" style="min-width:200px"><span class="small">${r.rows.length} rows`+(cfg.sem?` · Semester ${SEM}`:' · shared')+`</span></div>`;
-  h+='<div class="wrap"><table id="dtbl"><tr>'+cfg.labels.map(l=>`<th>${l}</th>`).join('')+'<th></th></tr>';
-  h+=r.rows.map(row=>'<tr>'+cfg.cols.map(c=>{
+  h+='<div class="wrap"><table id="dtbl"><tr><th style="width:44px">#</th>'+cfg.labels.map(l=>`<th>${l}</th>`).join('')+'<th></th></tr>';
+  h+=r.rows.map((row,__i)=>'<tr><td class="small" style="color:#667">'+(__i+1)+'</td>'+cfg.cols.map(c=>{
        let v=row[c];
        if(c==='programme'){const f=progFull(v);if(f&&f!==v)v=f+' ('+v+')';}
        return `<td>${esc(v)}</td>`;
@@ -744,7 +744,7 @@ function wireInstrFilters(){const s=$('dsearch'),d=$('ddept');
   const apply=()=>{const q=(s?s.value.toLowerCase():''),dv=(d?d.value:'All departments');
     document.querySelectorAll('#dtbl tr').forEach((tr,i)=>{if(i===0)return;
       const okq=!q||tr.textContent.toLowerCase().includes(q);
-      const okd=(dv==='All departments')||(tr.children[1]&&tr.children[1].textContent===dv);
+      const okd=(dv==='All departments')||(tr.children[2]&&tr.children[2].textContent===dv);
       tr.style.display=(okq&&okd)?'':'none';});};
   if(s)s.oninput=apply; if(d)d.onchange=apply;}
 function wireSearch(){const s=$('dsearch');if(!s)return;s.oninput=()=>{const q=s.value.toLowerCase();
